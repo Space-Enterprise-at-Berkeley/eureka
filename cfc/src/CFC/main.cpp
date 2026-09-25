@@ -160,7 +160,6 @@ static void prvSetupGPIO(void) {
 }
 
 static void prvSetupHardware() {
-  // setup stuff here
   ESP_ERROR_CHECK(prvSetupSPI());
   ESP_ERROR_CHECK(prvSetupI2C());
   prvSetupGPIO();
