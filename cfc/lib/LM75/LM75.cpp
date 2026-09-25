@@ -16,75 +16,67 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include <Wire.h>
 #include "LM75.h"
+#include "freertos/FreeRTOS.h"
 
 LM75::LM75 () {
   address = LM75_ADDRESS;
+  m_port = I2C_NUM_0;
 }
 
-LM75::LM75 (byte addr) {
+LM75::LM75 (uint8_t addr, i2c_port_t port) {
   address = addr;
+  m_port = port;
 }
 
-word LM75::float2regdata (float temp)
+uint16_t LM75::float2regdata (float temp)
 {
   // First multiply by 8 and coerce to integer to get +/- whole numbers
   // Then coerce to word and bitshift 5 to fill out MSB
-  return (word)((int)(temp * 8) << 5);
+  return (uint16_t)((int)(temp * 8) << 5);
 }
 
-float LM75::regdata2float (word regdata)
+float LM75::regdata2float (uint16_t regdata)
 {
   return ((float)(int)regdata / 32) / 8;
 }
 
-word LM75::_register16 (byte reg) {
-  Wire.beginTransmission(address);
-  Wire.write(reg);	
-  Wire.endTransmission();
-  
-  Wire.requestFrom(address, 2);
-  word regdata = (Wire.read() << 8) | Wire.read();
-  return regdata;
+uint16_t LM75::_register16 (uint8_t reg) {
+  uint8_t buf[2] = {0};
+  i2c_master_write_read_device(m_port, address, &reg, 1, buf, 2,
+                               pdMS_TO_TICKS(100));
+  return ((uint16_t)buf[0] << 8) | buf[1];
 }
 
-void LM75::_register16 (byte reg, word regdata) {
-  byte msb = (byte)(regdata >> 8);
-  byte lsb = (byte)(regdata);
-  
-  Wire.beginTransmission(address);
-  Wire.write(reg);
-  Wire.write(msb);
-  Wire.write(lsb);
-  Wire.endTransmission();
+void LM75::_register16 (uint8_t reg, uint16_t regdata) {
+  uint8_t msb = (uint8_t)(regdata >> 8);
+  uint8_t lsb = (uint8_t)(regdata);
+
+  uint8_t buf[3] = {reg, msb, lsb};
+  i2c_master_write_to_device(m_port, address, buf, 3, pdMS_TO_TICKS(100));
 }
 
-word LM75::_register8 (byte reg) {
-  Wire.beginTransmission(address);
-  Wire.write(reg);	
-  Wire.endTransmission();
-  
-  Wire.requestFrom(address, 1);
-  return Wire.read();
+uint8_t LM75::_register8 (uint8_t reg) {
+  uint8_t value = 0;
+  i2c_master_write_read_device(m_port, address, &reg, 1, &value, 1,
+                               pdMS_TO_TICKS(100));
+  return value;
 }
 
-void LM75::_register8 (byte reg, byte regdata) {  
-  Wire.beginTransmission(address);
-  Wire.write(reg);
-  Wire.write(regdata);
-  Wire.endTransmission();
+void LM75::_register8 (uint8_t reg, uint8_t regdata) {
+  uint8_t buf[2] = {reg, regdata};
+  i2c_master_write_to_device(m_port, address, buf, 2, pdMS_TO_TICKS(100));
 }
 
 float LM75::temp (void) {
   return regdata2float(_register16(LM75_TEMP_REGISTER));
 }
 
-byte LM75::conf () {
+uint8_t LM75::conf () {
   return _register8(LM75_CONF_REGISTER);
 }
 
-void LM75::conf (byte data) {
+void LM75::conf (uint8_t data) {
   _register8(LM75_CONF_REGISTER, data);
 }
 
@@ -104,10 +96,10 @@ void LM75::thyst (float temp) {
   _register16(LM75_THYST_REGISTER, float2regdata(temp));
 }
 
-boolean LM75::shutdown () {
+bool LM75::shutdown () {
   return conf() & 0x01;
 }
 
-void LM75::shutdown (boolean val) {
+void LM75::shutdown (bool val) {
   conf(val << LM75_CONF_SHUTDOWN);
 }
