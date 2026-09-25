@@ -1,0 +1,168 @@
+{
+  "version": 1,
+  "deviceIds": {
+    "AC_1": 11,
+    "AC_2": 12,
+    //"AC_3": 13,
+    "LC_1": 21,
+    // "LC_2": 22,
+    "PT_1": 31,
+    "PT_2": 32,
+    //"PT_3": 33,
+    //"PT_HAD": 34,
+    "CF_NOS": 42,
+    "CF_IPA": 43,
+    "TC_1": 51,
+    //"TC_2": 52,
+    //"TC_3": 53,
+    "MF" : 61,
+    //"TC_4": 54,
+    "ER_IPA": 71,
+    "FC_1": 81,
+    "RT_1": 91
+  },
+  "AC_1": [
+// channel 0 broken
+    {
+      "channel": 1,
+      "measure": "AC_BREAKWIRE"
+    },
+    {
+      "channel": 2,
+      "measure": "AC_IPA_POPPET"
+    },
+    {
+      "channel": 3,
+      "measure": "AC_NOS_POPPET"
+    },
+    {
+      "channel": 4,
+      "measure": "AC_IGNITER"
+    },
+    {
+      "channel": 5,
+      "measure": "AC_NOS_EMERGENCY_VENT"
+    },
+    {
+      "channel": 6,
+      "measure": "AC_BURNWIRE"
+    }
+  ],
+  "AC_2": [
+    {
+      "channel": 0,
+      "measure": "AC_NOS_GEMS"
+    },
+    {
+      "channel": 3,
+      "measure": "AC_NOS_FILL"
+    },
+    {
+      "channel": 5,
+      "measure": "AC_NOS_LINE_VENT"
+    },
+    {
+      "channel": 6,
+      "measure": "AC_IPA_PRESS_FLOW"
+    },
+        {
+      "channel": 7,
+      "measure": "AC_NOS_DRAIN"
+    }
+  ],
+  "PT_1": [
+    // channel 0 broken
+    {
+      "channel": 0,
+      "measure": "PT_NOS_POPPET_UPSTREAM" // NOS Poppet Press PT
+    },
+    {
+      "channel": 3,
+      "measure": "PT_IPA_POPPET_UPSTREAM" // IPA Poppet Press PT
+    },
+    {
+      "channel": 4,
+      "measure": "PT_NOS_POPPET_DOWNSTREAM"
+    },
+    {
+      "channel": 5,
+      "measure": "PT_IPA_TANK"
+    },
+    {
+      "channel": 6,
+      "measure": "PT_NOS_FILL_LINE"
+    },
+    {
+      "channel": 7,
+      "measure": "PT_IPA_POPPET_DOWNSTREAM"
+    }
+  ],
+  "PT_2": [
+    // channel 0, 1 broken
+    {
+      "channel": 2,
+      "measure": "PT_IPA_INJECTOR"
+    },
+    {
+      "channel": 3,
+      "measure": "PT_NOS_INJECTOR" // Pneumatics PT
+    },
+    // channel 4 broken?
+    {
+      "channel": 5,
+      "measure": "PT_NOS_TANK"
+    },
+    {
+      "channel": 7,
+      "measure": "PT_CHAMBER"
+    }
+  ],
+  "TC_1": [
+    {
+      "channel": 0,
+      "measure": "TC_ENGINE_0"
+    },
+    {
+      "channel": 1,
+      "measure": "TC_ENGINE_1"
+    },
+    {
+      "channel": 2,
+      "measure": "TC_ENGINE_2"
+    },
+    {
+      "channel": 3,
+      "measure": "TC_ENGINE_3"
+    },
+    {
+      "channel": 4,
+      "measure": "TC_ENGINE_4"
+    },
+    {
+      "channel": 5,
+      "measure": "TC_ENGINE_5"
+    },
+    {
+      "channel": 6,
+      "measure": "TC_ENGINE_6"
+    },
+    {
+      "channel": 7,
+      "measure": "TC_ENGINE_7"
+    }
+  ],
+  "LC_1": [
+    {
+      "channel": 0,
+      "measure": "LC_ENGINE_0"
+    },
+    {
+      "channel": 2,
+      "measure": "LC_ENGINE_1"
+    },
+    {
+      "channel": 3,
+      "measure": "LC_ENGINE_2"
+    }
+  ]
+}
