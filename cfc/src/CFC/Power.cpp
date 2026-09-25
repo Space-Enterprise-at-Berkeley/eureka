@@ -1,49 +1,50 @@
 #include "Power.h"
+#include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "proto/Packet_24VSupplyStats.h"
+
+static const char *TAG = "power";
 
 //reads power stats from INA233 and sends to ground station
 namespace Power
 {
-    INA233 ina(INA233_ADDRESS_41, Wire);
+    INA233 ina(INA233_ADDRESS_41);
     float rShunt = 0.004;
     float iMax = 5.0;
-    float sendRate = 1000 * 1000; // 0.5 second
-    
+
     Comms::Packet p;
 
     void init()
     {
-        // let'sa gooo!
-        // Serial.begin(921600); Comms takes care of this
-
-        //Wire.setClock(400000); 
-        //Wire.setPins(1,2); These ain't my problem.
-        //Wire.begin();
-
         ina.init(rShunt,iMax);
     }
 
-    uint32_t task_readSendPower()
+    void vTaskReadSendPower(void *pvParameters)
     {
-        // read the ina
-        float busVoltage = ina.readBusVoltage();
-        float shuntCurrent = ina.readCurrent();
-        //float shuntVoltage = ina.readShuntVoltage(); don't need this
-        float power = ina.readPower();
-        //float avgPower = ina.readAvgPower(); eh maybe?
+        (void)pvParameters;
+        while (1)
+        {
+            // read the ina
+            float busVoltage = ina.readBusVoltage();
+            float shuntCurrent = ina.readCurrent();
+            //float shuntVoltage = ina.readShuntVoltage(); don't need this
+            float power = ina.readPower();
+            //float avgPower = ina.readAvgPower(); eh maybe?
 
-        //make Packet
-        Packet24VSupplyStats::Builder()
-            .withSupply24Voltage(busVoltage)
-            .withSupply24Current(shuntCurrent)
-            .withSupply24Power(power)
-            .build()
-            .writeRawPacket(&p);
+            //make Packet
+            Packet24VSupplyStats::Builder()
+                .withSupply24Voltage(busVoltage)
+                .withSupply24Current(shuntCurrent)
+                .withSupply24Power(power)
+                .build()
+                .writeRawPacket(&p);
 
-        // emit the packet
-        Comms::emitPacketOverAllInterfaces(&p);
+            // emit the packet
+            Comms::emitPacketOverAllInterfaces(&p);
 
-        return sendRate; 
+            vTaskDelay(pdMS_TO_TICKS(1000)); // once per second
+        }
     }
 
     void print()
@@ -56,11 +57,8 @@ namespace Power
         //float avgPower = ina.readAvgPower(); eh maybe?
 
         // print the ina
-        Serial.print("Bus Voltage: ");
-        Serial.println(busVoltage);
-        Serial.print("Shunt Current: ");
-        Serial.println(shuntCurrent);
-        Serial.print("Power: ");
-        Serial.println(power);
+        ESP_LOGI(TAG,
+                 "Bus Voltage: %.3f V, Shunt Current: %.3f A, Power: %.3f W",
+                 busVoltage, shuntCurrent, power);
     }
 }

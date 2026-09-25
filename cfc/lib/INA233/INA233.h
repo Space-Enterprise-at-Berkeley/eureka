@@ -24,8 +24,7 @@
 /**************************************************************************/
 #pragma once
 
-#include "Arduino.h"
-#include <Wire.h>
+#include "driver/i2c.h"
 
 /*=========================================================================
     I2C ADDRESSES/BITS
@@ -116,10 +115,8 @@
 
 class INA233{
  public:
-  INA233(uint8_t addr = INA233_ADDRESS_45, TwoWire &i2c = Wire);
-  uint8_t requestFrom(uint8_t addr, uint8_t qty, uint32_t iaddr, uint8_t n, uint8_t stop);
+  INA233(uint8_t addr = INA233_ADDRESS_45, i2c_port_t port = I2C_NUM_0);
   uint16_t init(float r_shunt, float i_max);
-  void wireBegin(void);
   float readBusVoltage(void);
   float readShuntVoltage(void);
   float readCurrent(void);
@@ -156,5 +153,5 @@ class INA233{
   int8_t R_p;
   float Current_LSB;
   float Power_LSB;
-  TwoWire &m_i2c;
+  i2c_port_t m_port;
 };

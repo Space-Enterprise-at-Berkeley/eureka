@@ -22,25 +22,24 @@
     v1.0  - First release Mar 2018
 */
 /**************************************************************************/
-#include "Arduino.h"
-#include <Wire.h>
-#include "INA233.h"
+#include <cmath>
 
-uint8_t INA233::requestFrom(uint8_t addr, uint8_t qty, uint32_t iaddr, uint8_t n, uint8_t stop)
-{
-	if (n > 0) {
-		union { uint32_t ul; uint8_t b[4]; } iaddress;
-		iaddress.ul = iaddr;
-		m_i2c.beginTransmission(addr);
-		if (n > 3) n = 3;
-		do {
-			n = n - 1;
-			m_i2c.write(iaddress.b[n]);
-		} while (n > 0);
-		m_i2c.endTransmission(false);
-	}
-	if (qty > 128) qty = 128;
-	return m_i2c.requestFrom(addr, qty, stop);
+#include "INA233.h"
+#include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+
+static const char *TAG = "ina233";
+
+static esp_err_t inaWrite(i2c_port_t port, uint8_t addr, const uint8_t *data,
+                          size_t len) {
+  return i2c_master_write_to_device(port, addr, data, len,
+                                    pdMS_TO_TICKS(100));
+}
+
+static esp_err_t inaReadReg(i2c_port_t port, uint8_t addr, uint8_t reg,
+                            uint8_t *data, size_t len) {
+  return i2c_master_write_read_device(port, addr, &reg, 1, data, len,
+                                      pdMS_TO_TICKS(100));
 }
 /**************************************************************************/
 /*!
@@ -50,9 +49,7 @@ uint8_t INA233::requestFrom(uint8_t addr, uint8_t qty, uint32_t iaddr, uint8_t n
 /**************************************************************************/
 void INA233::wireSendCmd(uint8_t reg)
 {
-  m_i2c.beginTransmission(ina233_i2caddr);
-  m_i2c.write(reg);                       // PMBus command
-  m_i2c.endTransmission();
+  inaWrite(m_port, ina233_i2caddr, &reg, 1);
 }
 
 /**************************************************************************/
@@ -63,10 +60,8 @@ void INA233::wireSendCmd(uint8_t reg)
 /**************************************************************************/
 void INA233::wireWriteByte (uint8_t reg, uint8_t value)
 {
-  m_i2c.beginTransmission(ina233_i2caddr);
-  m_i2c.write(reg);                       // PMBus command
-  m_i2c.write(value);                     // byte to write
-  m_i2c.endTransmission();
+  const uint8_t buf[2] = {reg, value};
+  inaWrite(m_port, ina233_i2caddr, buf, sizeof(buf));
 }
 /**************************************************************************/
 /*!
@@ -76,11 +71,9 @@ void INA233::wireWriteByte (uint8_t reg, uint8_t value)
 /**************************************************************************/
 void INA233::wireWriteWord (uint8_t reg, uint16_t value)
 {
-  m_i2c.beginTransmission(ina233_i2caddr);
-  m_i2c.write(reg);                       // PMBus command
-  m_i2c.write(value & 0xFF);              // Lower 8-bits
-  m_i2c.write((value >> 8) & 0xFF);       // Upper 8-bits
-  m_i2c.endTransmission();
+  const uint8_t buf[3] = {reg, (uint8_t)(value & 0xFF),
+                          (uint8_t)((value >> 8) & 0xFF)};
+  inaWrite(m_port, ina233_i2caddr, buf, sizeof(buf));
 }
 /**************************************************************************/
 /*!
@@ -91,13 +84,12 @@ void INA233::wireWriteWord (uint8_t reg, uint16_t value)
 /**************************************************************************/
 void INA233::wireReadBlock(uint8_t reg, uint8_t value[6])
 {
-  int i;
-  uint8_t block_size;
-  requestFrom(ina233_i2caddr,(uint8_t)7,reg,(uint8_t)1,(uint8_t)true);
-  block_size=m_i2c.read();
-  for (i=0;i<block_size;i++)
+  uint8_t buf[7] = {0};
+  inaReadReg(m_port, ina233_i2caddr, reg, buf, sizeof(buf));
+  uint8_t block_size = buf[0];
+  for (uint8_t i = 0; i < block_size && i < 6; i++)
   {
-    value[i]=m_i2c.read();
+    value[i] = buf[i + 1];
   }
 }
 
@@ -108,9 +100,9 @@ void INA233::wireReadBlock(uint8_t reg, uint8_t value[6])
 /**************************************************************************/
 void INA233::wireReadWord(uint8_t reg, uint16_t *value)
 {
-  requestFrom(ina233_i2caddr,(uint8_t)2,reg,(uint8_t)1,(uint8_t)true);
-  *value = m_i2c.read();
-  *value=((m_i2c.read() << 8) | *value);
+  uint8_t buf[2] = {0};
+  inaReadReg(m_port, ina233_i2caddr, reg, buf, sizeof(buf));
+  *value = (uint16_t)buf[0] | ((uint16_t)buf[1] << 8);
 }
 /**************************************************************************/
 /*!
@@ -119,8 +111,7 @@ void INA233::wireReadWord(uint8_t reg, uint16_t *value)
 /**************************************************************************/
 void INA233::wireReadByte(uint8_t reg, uint8_t *value)
 {
-  requestFrom(ina233_i2caddr,(uint8_t)1,reg,(uint8_t)1,(uint8_t)true);
-  *value = m_i2c.read();
+  inaReadReg(m_port, ina233_i2caddr, reg, value, 1);
 }
 /**************************************************************************/
 /*!
@@ -237,7 +228,7 @@ uint16_t INA233::setCalibration(float r_shunt,float i_max, uint8_t *ERROR)
     @brief  Instantiates a new INA233 class
 */
 /**************************************************************************/
-INA233::INA233(uint8_t addr, TwoWire &i2c) : m_i2c(i2c) {
+INA233::INA233(uint8_t addr, i2c_port_t port) : m_port(port) {
   ina233_i2caddr = addr;
   Current_LSB = 0;
   Power_LSB = 0;
@@ -250,42 +241,21 @@ INA233::INA233(uint8_t addr, TwoWire &i2c) : m_i2c(i2c) {
 uint16_t INA233::init(float r_shunt = 0.004, float i_max = 10){
   uint16_t CAL=0;
   uint8_t Set_ERROR=0;
-  float Current_LSB=0;
-  float Power_LSB=0;
   CAL = setCalibration(r_shunt,i_max,&Set_ERROR);
   if (Set_ERROR==1)
   {
-    Serial.println("ERROR: Calibration value is out of range");
+    ESP_LOGE(TAG, "Calibration value is out of range");
   }
   else
   {
-    Serial.print("Calibration value: ");
-    Serial.println(CAL);
-    Serial.print("Current LSB: ");
-    Serial.print(Current_LSB);
-    Serial.println(" uA");
-    Serial.print("Power LSB: ");
-    Serial.print(Power_LSB);
-    Serial.println(" mW");
-    Serial.print("m_c: ");
-    Serial.println(m_c);
-    Serial.print("R_c: ");
-    Serial.println(R_c);
-    Serial.print("m_p: ");
-    Serial.println(m_p);
-    Serial.print("R_p: ");
-    Serial.println(R_p);
+    ESP_LOGI(TAG,
+             "Calibration value: %u, Current LSB: %.3f uA, Power LSB: %.3f mW, "
+             "m_c: %d, R_c: %d, m_p: %d, R_p: %d",
+             (unsigned)CAL, Current_LSB, Power_LSB, m_c, R_c, m_p, R_p);
   }
   return CAL;
 }
-/**************************************************************************/
-/*!
-    @brief  Initializes the I2C interface
-*/
-/**************************************************************************/
-void INA233::wireBegin() {
-  m_i2c.begin(); // make sure your SDA/SCL pins are set with setPins prior to calling begin
-}
+
 /**************************************************************************/
 /*!
     @brief  Gets the raw bus voltage (2-byte, two's complement integer
