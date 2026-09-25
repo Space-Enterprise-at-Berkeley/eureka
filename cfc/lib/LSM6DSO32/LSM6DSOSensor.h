@@ -45,17 +45,11 @@
 
 /* Includes ------------------------------------------------------------------*/
 
-#include "Wire.h"
-#include "SPI.h"
+#include "driver/i2c.h"
+#include "driver/spi_master.h"
 #include "lsm6dso_reg.h"
 
 /* Defines -------------------------------------------------------------------*/
-/* For compatibility with ESP32 platforms */
-#ifdef ESP32
-#ifndef MSBFIRST
-#define MSBFIRST SPI_MSBFIRST
-#endif
-#endif
 
 #define LSM6DSO_ACC_SENSITIVITY_FS_2G   0.061f
 #define LSM6DSO_ACC_SENSITIVITY_FS_4G   0.122f
@@ -110,7 +104,7 @@ typedef struct
 
 
 /* Class Declaration ---------------------------------------------------------*/
-   
+
 /**
  * Abstract class of an LSM6DSO Inertial Measurement Unit (IMU) 3 axes
  * sensor.
@@ -118,8 +112,8 @@ typedef struct
 class LSM6DSOSensor
 {
   public:
-    LSM6DSOSensor(TwoWire *i2c, uint8_t address=LSM6DSO_I2C_ADD_H);
-    LSM6DSOSensor(SPIClass *spi, int cs_pin, uint32_t spi_speed=2000000);
+    LSM6DSOSensor(i2c_port_t i2c_port, uint8_t address=LSM6DSO_I2C_ADD_H);
+    LSM6DSOSensor(spi_host_device_t spi_host, int cs_pin, uint32_t spi_speed=2000000);
     LSM6DSOStatusTypeDef begin();
     LSM6DSOStatusTypeDef end();
     LSM6DSOStatusTypeDef ReadID(uint8_t *Id);
@@ -133,7 +127,7 @@ class LSM6DSOSensor
     LSM6DSOStatusTypeDef Set_X_FS(int32_t FullScale);
     LSM6DSOStatusTypeDef Get_X_AxesRaw(int16_t *Value);
     LSM6DSOStatusTypeDef Get_X_Axes(int32_t *Acceleration);
-    
+
     LSM6DSOStatusTypeDef Enable_G();
     LSM6DSOStatusTypeDef Disable_G();
     LSM6DSOStatusTypeDef Get_G_Sensitivity(float *Sensitivity);
@@ -144,31 +138,31 @@ class LSM6DSOSensor
     LSM6DSOStatusTypeDef Set_G_FS(int32_t FullScale);
     LSM6DSOStatusTypeDef Get_G_AxesRaw(int16_t *Value);
     LSM6DSOStatusTypeDef Get_G_Axes(int32_t *AngularRate);
-    
+
     LSM6DSOStatusTypeDef Read_Reg(uint8_t reg, uint8_t *Data);
     LSM6DSOStatusTypeDef Write_Reg(uint8_t reg, uint8_t Data);
     LSM6DSOStatusTypeDef Set_Interrupt_Latch(uint8_t Status);
     LSM6DSOStatusTypeDef Set_Interrupt_Polarity(uint8_t Status);
     LSM6DSOStatusTypeDef Set_Interrupt_PinMode(uint8_t Status);
-    
+
     LSM6DSOStatusTypeDef Enable_Free_Fall_Detection(LSM6DSO_SensorIntPin_t IntPin);
     LSM6DSOStatusTypeDef Disable_Free_Fall_Detection();
     LSM6DSOStatusTypeDef Set_Free_Fall_Threshold(uint8_t Threshold);
     LSM6DSOStatusTypeDef Set_Free_Fall_Duration(uint8_t Duration);
-    
+
     LSM6DSOStatusTypeDef Enable_Pedometer();
     LSM6DSOStatusTypeDef Disable_Pedometer();
     LSM6DSOStatusTypeDef Get_Step_Count(uint16_t *StepCount);
     LSM6DSOStatusTypeDef Step_Counter_Reset();
-    
+
     LSM6DSOStatusTypeDef Enable_Tilt_Detection(LSM6DSO_SensorIntPin_t IntPin);
     LSM6DSOStatusTypeDef Disable_Tilt_Detection();
-    
+
     LSM6DSOStatusTypeDef Enable_Wake_Up_Detection(LSM6DSO_SensorIntPin_t IntPin);
     LSM6DSOStatusTypeDef Disable_Wake_Up_Detection();
     LSM6DSOStatusTypeDef Set_Wake_Up_Threshold(uint8_t Threshold);
     LSM6DSOStatusTypeDef Set_Wake_Up_Duration(uint8_t Duration);
-    
+
     LSM6DSOStatusTypeDef Enable_Single_Tap_Detection(LSM6DSO_SensorIntPin_t IntPin);
     LSM6DSOStatusTypeDef Disable_Single_Tap_Detection();
     LSM6DSOStatusTypeDef Enable_Double_Tap_Detection(LSM6DSO_SensorIntPin_t IntPin);
@@ -177,7 +171,7 @@ class LSM6DSOSensor
     LSM6DSOStatusTypeDef Set_Tap_Shock_Time(uint8_t Time);
     LSM6DSOStatusTypeDef Set_Tap_Quiet_Time(uint8_t Time);
     LSM6DSOStatusTypeDef Set_Tap_Duration_Time(uint8_t Time);
-    
+
     LSM6DSOStatusTypeDef Enable_6D_Orientation(LSM6DSO_SensorIntPin_t IntPin);
     LSM6DSOStatusTypeDef Disable_6D_Orientation();
     LSM6DSOStatusTypeDef Set_6D_Orientation_Threshold(uint8_t Threshold);
@@ -187,14 +181,14 @@ class LSM6DSOSensor
     LSM6DSOStatusTypeDef Get_6D_Orientation_YH(uint8_t *YHigh);
     LSM6DSOStatusTypeDef Get_6D_Orientation_ZL(uint8_t *ZLow);
     LSM6DSOStatusTypeDef Get_6D_Orientation_ZH(uint8_t *ZHigh);
-    
+
     LSM6DSOStatusTypeDef Get_X_DRDY_Status(uint8_t *Status);
     LSM6DSOStatusTypeDef Get_X_Event_Status(LSM6DSO_Event_Status_t *Status);
     LSM6DSOStatusTypeDef Set_X_SelfTest(uint8_t Status);
-    
+
     LSM6DSOStatusTypeDef Get_G_DRDY_Status(uint8_t *Status);
     LSM6DSOStatusTypeDef Set_G_SelfTest(uint8_t Status);
-    
+
     LSM6DSOStatusTypeDef Get_FIFO_Num_Samples(uint16_t *NumSamples);
     LSM6DSOStatusTypeDef Get_FIFO_Full_Status(uint8_t *Status);
     LSM6DSOStatusTypeDef Set_FIFO_INT1_FIFO_Full(uint8_t Status);
@@ -207,7 +201,7 @@ class LSM6DSOSensor
     LSM6DSOStatusTypeDef Set_FIFO_X_BDR(float Bdr);
     LSM6DSOStatusTypeDef Get_FIFO_G_Axes(int32_t *AngularVelocity);
     LSM6DSOStatusTypeDef Set_FIFO_G_BDR(float Bdr);
-    
+
     /**
      * @brief Utility function to read data.
      * @param  pBuffer: pointer to data to be read.
@@ -216,45 +210,33 @@ class LSM6DSOSensor
      * @retval 0 if ok, an error code otherwise.
      */
     uint8_t IO_Read(uint8_t* pBuffer, uint8_t RegisterAddr, uint16_t NumByteToRead)
-    {        
-      if (dev_spi) {
-        dev_spi->beginTransaction(SPISettings(spi_speed, MSBFIRST, SPI_MODE3));
+    {
+      if (!use_i2c) {
+        uint8_t reg = RegisterAddr | 0x80;
+        spi_transaction_t addr = {};
+        addr.length = 8;
+        addr.tx_buffer = &reg;
+        addr.flags = SPI_TRANS_CS_KEEP_ACTIVE;
+        spi_device_transmit(spi_dev, &addr);
 
-        digitalWrite(cs_pin, LOW);
-
-        /* Write Reg Address */
-        dev_spi->transfer(RegisterAddr | 0x80);
-        /* Read the data */
-        for (uint16_t i=0; i<NumByteToRead; i++) {
-          *(pBuffer+i) = dev_spi->transfer(0x00);
-        }
-         
-        digitalWrite(cs_pin, HIGH);
-
-        dev_spi->endTransaction();
+        spi_transaction_t data = {};
+        data.length = NumByteToRead * 8;
+        data.rx_buffer = pBuffer;
+        spi_device_transmit(spi_dev, &data);
 
         return 0;
       }
-		
-      if (dev_i2c) {
-        dev_i2c->beginTransmission(((uint8_t)(((address) >> 1) & 0x7F)));
-        dev_i2c->write(RegisterAddr);
-        dev_i2c->endTransmission(false);
 
-        dev_i2c->requestFrom(((uint8_t)(((address) >> 1) & 0x7F)), (uint8_t) NumByteToRead);
-
-        int i=0;
-        while (dev_i2c->available()) {
-          pBuffer[i] = dev_i2c->read();
-          i++;
-        }
-
+      if (use_i2c) {
+        i2c_master_write_read_device(i2c_port, (uint8_t)((address >> 1) & 0x7F),
+                                     &RegisterAddr, 1, pBuffer, NumByteToRead,
+                                     pdMS_TO_TICKS(100));
         return 0;
       }
 
       return 1;
     }
-    
+
     /**
      * @brief Utility function to write data.
      * @param  pBuffer: pointer to data to be written.
@@ -263,36 +245,33 @@ class LSM6DSOSensor
      * @retval 0 if ok, an error code otherwise.
      */
     uint8_t IO_Write(uint8_t* pBuffer, uint8_t RegisterAddr, uint16_t NumByteToWrite)
-    {  
-      if (dev_spi) {
-        dev_spi->beginTransaction(SPISettings(spi_speed, MSBFIRST, SPI_MODE3));
+    {
+      if (!use_i2c) {
+        spi_transaction_t addr = {};
+        addr.length = 8;
+        addr.tx_buffer = &RegisterAddr;
+        addr.flags = SPI_TRANS_CS_KEEP_ACTIVE;
+        spi_device_transmit(spi_dev, &addr);
 
-        digitalWrite(cs_pin, LOW);
+        spi_transaction_t data = {};
+        data.length = NumByteToWrite * 8;
+        data.tx_buffer = pBuffer;
+        spi_device_transmit(spi_dev, &data);
 
-        /* Write Reg Address */
-        dev_spi->transfer(RegisterAddr);
-        /* Write the data */
-        for (uint16_t i=0; i<NumByteToWrite; i++) {
-          dev_spi->transfer(pBuffer[i]);
-        }
-
-        digitalWrite(cs_pin, HIGH);
-
-        dev_spi->endTransaction();
-
-        return 0;                    
+        return 0;
       }
-  
-      if (dev_i2c) {
-        dev_i2c->beginTransmission(((uint8_t)(((address) >> 1) & 0x7F)));
 
-        dev_i2c->write(RegisterAddr);
-        for (uint16_t i = 0 ; i < NumByteToWrite ; i++) {
-          dev_i2c->write(pBuffer[i]);
+      if (use_i2c) {
+        uint8_t buf[16];
+        if (NumByteToWrite > sizeof(buf) - 1) {
+          return 1;
         }
-
-        dev_i2c->endTransmission(true);
-
+        buf[0] = RegisterAddr;
+        for (uint16_t i = 0; i < NumByteToWrite; i++) {
+          buf[i + 1] = pBuffer[i];
+        }
+        i2c_master_write_to_device(i2c_port, (uint8_t)((address >> 1) & 0x7F),
+                                   buf, NumByteToWrite + 1, pdMS_TO_TICKS(100));
         return 0;
       }
 
@@ -300,32 +279,31 @@ class LSM6DSOSensor
     }
 
   private:
-  
+
     LSM6DSOStatusTypeDef Set_X_ODR_When_Enabled(float Odr);
     LSM6DSOStatusTypeDef Set_X_ODR_When_Disabled(float Odr);
     LSM6DSOStatusTypeDef Set_G_ODR_When_Enabled(float Odr);
     LSM6DSOStatusTypeDef Set_G_ODR_When_Disabled(float Odr);
-  
-  
 
     /* Helper classes. */
-    TwoWire *dev_i2c;
-    SPIClass *dev_spi;
-    
+    bool use_i2c;
+    i2c_port_t i2c_port;
+    spi_device_handle_t spi_dev;
+    spi_host_device_t spi_host;
+
     /* Configuration */
     uint8_t address;
     int cs_pin;
     uint32_t spi_speed;
-    
+
     lsm6dso_odr_xl_t acc_odr;
     lsm6dso_odr_g_t gyro_odr;
-    
+
     uint8_t acc_is_enabled;
     uint8_t gyro_is_enabled;
-    
-    
+
     lsm6dso_ctx_t reg_ctx;
-    
+
 };
 
 #ifdef __cplusplus

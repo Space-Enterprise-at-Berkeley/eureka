@@ -48,9 +48,12 @@
  * @param i2c object of an helper class which handles the I2C peripheral
  * @param address the address of the component's instance
  */
-LSM6DSOSensor::LSM6DSOSensor(TwoWire *i2c, uint8_t address) : dev_i2c(i2c), address(address)
+LSM6DSOSensor::LSM6DSOSensor(i2c_port_t port, uint8_t addr)
 {
-  dev_spi = NULL;
+  use_i2c = true;
+  i2c_port = port;
+  address = addr;
+  spi_dev = nullptr;
   reg_ctx.write_reg = LSM6DSO_io_write;
   reg_ctx.read_reg = LSM6DSO_io_read;
   reg_ctx.handle = (void *)this;
@@ -63,12 +66,16 @@ LSM6DSOSensor::LSM6DSOSensor(TwoWire *i2c, uint8_t address) : dev_i2c(i2c), addr
  * @param cs_pin the chip select pin
  * @param spi_speed the SPI speed
  */
-LSM6DSOSensor::LSM6DSOSensor(SPIClass *spi, int cs_pin, uint32_t spi_speed) : dev_spi(spi), cs_pin(cs_pin), spi_speed(spi_speed)
+LSM6DSOSensor::LSM6DSOSensor(spi_host_device_t host, int cs, uint32_t speed)
 {
+  use_i2c = false;
+  spi_host = host;
+  cs_pin = cs;
+  spi_speed = speed;
+  spi_dev = nullptr;
   reg_ctx.write_reg = LSM6DSO_io_write;
   reg_ctx.read_reg = LSM6DSO_io_read;
-  reg_ctx.handle = (void *)this; 
-  dev_i2c = NULL;
+  reg_ctx.handle = (void *)this;
   address = 0;
   acc_is_enabled = 0U;
   gyro_is_enabled = 0U;
@@ -80,11 +87,17 @@ LSM6DSOSensor::LSM6DSOSensor(SPIClass *spi, int cs_pin, uint32_t spi_speed) : de
  */
 LSM6DSOStatusTypeDef LSM6DSOSensor::begin()
 {
-  if(dev_spi)
+  if (!use_i2c)
   {
-    // Configure CS pin
-    pinMode(cs_pin, OUTPUT);
-    digitalWrite(cs_pin, HIGH); 
+    spi_device_interface_config_t devcfg = {};
+    devcfg.clock_speed_hz = spi_speed;
+    devcfg.mode = 3; // SPI_MODE3
+    devcfg.spics_io_num = cs_pin;
+    devcfg.queue_size = 1;
+    if (spi_bus_add_device(spi_host, &devcfg, &spi_dev) != ESP_OK)
+    {
+      return LSM6DSO_ERROR;
+    }
   }
 
   /* Disable I3C */
@@ -163,13 +176,6 @@ LSM6DSOStatusTypeDef LSM6DSOSensor::end()
   if (Disable_G() != LSM6DSO_OK)
   {
     return LSM6DSO_ERROR;
-  }
-
-  /* Reset CS configuration */
-  if(dev_spi)
-  {
-    // Configure CS pin
-    pinMode(cs_pin, INPUT); 
   }
 
   return LSM6DSO_OK;

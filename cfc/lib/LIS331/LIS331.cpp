@@ -1,6 +1,4 @@
 #include "LIS331.h"
-#include <SPI.h>
-#include <Wire.h>
 #include <stdint.h>
 
 LIS331::LIS331(void)
@@ -10,6 +8,10 @@ LIS331::LIS331(void)
 void LIS331::begin(comm_mode mode)
 {
   this->mode = mode;
+  if (mode == USE_SPI && m_spi_dev == nullptr)
+  {
+    ensureSPI();
+  }
   setPowerMode(NORMAL);
   axesEnable(true);
   uint8_t data = 0;
@@ -358,29 +360,51 @@ void LIS331::setIntThreshold(uint8_t threshold, uint8_t intSource)
   }
 }
 
+void LIS331::ensureSPI()
+{
+  if (m_spi_dev != nullptr)
+  {
+    return;
+  }
+  spi_device_interface_config_t devcfg = {};
+  devcfg.clock_speed_hz = 1000000;
+  devcfg.mode = 0;
+  devcfg.spics_io_num = CSPin;
+  devcfg.queue_size = 1;
+  spi_bus_add_device(m_spi_host, &devcfg, &m_spi_dev);
+}
+
 void LIS331::LIS331_write(uint8_t reg_address, uint8_t *data, uint8_t len)
 {
   if (mode == USE_I2C)
   {
-    // I2C write handling code
-    Wire.beginTransmission(address);
-    Wire.write(reg_address);
-    for(int i = 0; i<len; i++)
+    uint8_t buf[16];
+    if (len > sizeof(buf) - 1)
     {
-      Wire.write(data[i]);
+      len = sizeof(buf) - 1;
     }
-    Wire.endTransmission();
+    buf[0] = reg_address;
+    for (int i = 0; i < len; i++)
+    {
+      buf[i + 1] = data[i];
+    }
+    i2c_master_write_to_device(m_i2c_port, address, buf, len + 1,
+                               pdMS_TO_TICKS(100));
   }
   else
   {
-    // SPI write handling code
-    digitalWrite(CSPin, LOW);
-    SPI.transfer(reg_address | 0x40);
-    for (int i=0; i<len; i++)
-    {
-      SPI.transfer(data[i]);
-    }
-    digitalWrite(CSPin, HIGH);
+    ensureSPI();
+    uint8_t reg = reg_address | 0x40;
+    spi_transaction_t addr = {};
+    addr.length = 8;
+    addr.tx_buffer = &reg;
+    addr.flags = SPI_TRANS_CS_KEEP_ACTIVE;
+    spi_device_transmit(m_spi_dev, &addr);
+
+    spi_transaction_t t = {};
+    t.length = len * 8;
+    t.tx_buffer = data;
+    spi_device_transmit(m_spi_dev, &t);
   }
 }
 
@@ -388,25 +412,22 @@ void LIS331::LIS331_read(uint8_t reg_address, uint8_t *data, uint8_t len)
 {
   if (mode == USE_I2C)
   {
-    // I2C read handling code
-    Wire.beginTransmission(address);
-    Wire.write(reg_address);
-    Wire.endTransmission();
-    Wire.requestFrom(address, len);
-    for (int i = 0; i<len; i++)
-    {
-      data[i] = Wire.read();
-    }
+    i2c_master_write_read_device(m_i2c_port, address, &reg_address, 1, data, len,
+                                 pdMS_TO_TICKS(100));
   }
   else
   {
-    // SPI read handling code
-    digitalWrite(CSPin, LOW);
-    SPI.transfer(reg_address | 0xC0);
-    for (int i=0; i<len; i++)
-    {
-      data[i] = SPI.transfer(0);
-    }
-    digitalWrite(CSPin, HIGH);
+    ensureSPI();
+    uint8_t reg = reg_address | 0xC0;
+    spi_transaction_t addr = {};
+    addr.length = 8;
+    addr.tx_buffer = &reg;
+    addr.flags = SPI_TRANS_CS_KEEP_ACTIVE;
+    spi_device_transmit(m_spi_dev, &addr);
+
+    spi_transaction_t t = {};
+    t.length = len * 8;
+    t.rx_buffer = data;
+    spi_device_transmit(m_spi_dev, &t);
   }
 }
