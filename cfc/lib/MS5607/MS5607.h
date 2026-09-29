@@ -20,8 +20,8 @@ class MS5607
     float getPressure(void);
     // void readDigitalValue(void);
     float getAltitude(void);
-    
-    const float P0 = 1013.25;
+    void setReferencePressure(float pressure);
+    float P0;
     uint8_t CS_PIN;                // Chip Select pin for SPI
     short OSR = 4096;              // default over sampling ratio
     short CONV_D1 = 0x48;          // corresponding temp conv. command for OSR

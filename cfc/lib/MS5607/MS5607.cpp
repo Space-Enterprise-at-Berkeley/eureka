@@ -6,6 +6,7 @@
 MS5607::MS5607(uint8_t cs_pin)
 {
   this->CS_PIN = cs_pin;
+  this->P0 = 1013.25; // default reference pressure in mBar
 }
 
 // Initialise coefficient by reading calibration data
@@ -14,14 +15,17 @@ void MS5607::begin()
   SPI.begin(17,16,15); // SCK, MISO, MOSI
   readCalibration();
 }
-
+void MS5607::setReferencePressure(float pressure) {
+  // Set the reference pressure for altitude calculations
+  this->P0 = pressure;
+}
 void MS5607::transfer(void (*callback)(uint8_t *values, int length), uint8_t *values, int length)
 {
-  digitalWrite(CS_PIN, LOW);
   SPI.beginTransaction(SPISettings(1000000, MSBFIRST, SPI_MODE0));
+  digitalWrite(CS_PIN, LOW);
   callback(values, length);
-  SPI.endTransaction();
   digitalWrite(CS_PIN, HIGH);
+  SPI.endTransaction();
 }
 
 void MS5607::resetDevice(void) 
