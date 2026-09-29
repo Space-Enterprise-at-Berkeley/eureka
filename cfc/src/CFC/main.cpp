@@ -118,7 +118,6 @@ void setup() {
   // initialize our hardware
   pinMode(LED_PIN, OUTPUT);
   USBComms::init();
-  Serial.setDebugOutput(true); // route ESP_LOGx to USB instead of UART0
   RadioComms::init();
   Power::init();
   Barometer::init();
