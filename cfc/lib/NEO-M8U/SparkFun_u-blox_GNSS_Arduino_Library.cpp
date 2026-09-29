@@ -644,10 +644,10 @@ size_t SFE_UBLOX_GNSS::getPacketCfgSpaceRemaining()
 }
 
 // Initialize the I2C port
-bool SFE_UBLOX_GNSS::begin(i2c_port_t i2cPort, uint8_t deviceAddress, uint16_t maxWait, bool assumeSuccess)
+bool SFE_UBLOX_GNSS::begin(TwoWire &wirePort, uint8_t deviceAddress, uint16_t maxWait, bool assumeSuccess)
 {
   commType = COMM_TYPE_I2C;
-  _i2cPort = i2cPort; // Grab which port the user wants us to use
+  _i2cPort = &wirePort; // Grab which port the user wants us to use
   _signsOfLife = false; // Clear the _signsOfLife flag. It will be set true if valid traffic is seen.
 
   // We expect caller to begin their I2C port, with the speed of their choice external to the library
@@ -934,6 +934,13 @@ int8_t SFE_UBLOX_GNSS::getMaxNMEAByteCount(void)
 // Returns true if I2C device ack's
 bool SFE_UBLOX_GNSS::isConnected(uint16_t maxWait)
 {
+  if (commType == COMM_TYPE_I2C)
+  {
+    _i2cPort->beginTransmission((uint8_t)_gpsI2Caddress);
+    if (_i2cPort->endTransmission() != 0)
+      return false; // Sensor did not ack
+  }
+
   // Query port configuration to see whether we get a meaningful response
   // We could simply request the config for any port but, just for giggles, let's request the config for most appropriate port
   if (commType == COMM_TYPE_I2C)
@@ -1064,16 +1071,14 @@ bool SFE_UBLOX_GNSS::checkUbloxInternal(ubxPacket *incomingUBX, uint8_t requeste
 // Returns true if new bytes are available
 bool SFE_UBLOX_GNSS::checkUbloxI2C(ubxPacket *incomingUBX, uint8_t requestedClass, uint8_t requestedID)
 {
-  if ((uint32_t)(esp_timer_get_time() / 1000) - lastCheck >= i2cPollingWait)
+  if (millis() - lastCheck >= i2cPollingWait)
   {
     // Get the number of bytes available from the module
     uint16_t bytesAvailable = 0;
-    uint8_t lengthReg = 0xFD; // 0xFD (MSB) and 0xFE (LSB) are the registers that contain number of bytes available
-    uint8_t lengthBytes[2] = {0};
-    esp_err_t i2cError = i2c_master_write_read_device(
-        _i2cPort, _gpsI2Caddress, &lengthReg, 1, lengthBytes, 2,
-        pdMS_TO_TICKS(100));
-    if (i2cError != ESP_OK)
+    _i2cPort->beginTransmission(_gpsI2Caddress);
+    _i2cPort->write(0xFD);                               // 0xFD (MSB) and 0xFE (LSB) are the registers that contain number of bytes available
+    uint8_t i2cError = _i2cPort->endTransmission(false); // Always send a restart command. Do not release the bus. ESP32 supports this.
+    if (i2cError != 0)
     {
 #ifndef SFE_UBLOX_REDUCED_PROG_MEM
       if ((_printDebug == true) || (_printLimitedDebug == true)) // This is important. Print this if doing limited debugging
@@ -1086,7 +1091,7 @@ bool SFE_UBLOX_GNSS::checkUbloxI2C(ubxPacket *incomingUBX, uint8_t requestedClas
     }
 
     // Forcing requestFrom to use a restart would be unwise. If bytesAvailable is zero, we want to surrender the bus.
-    uint8_t bytesReturned = 2;
+    uint8_t bytesReturned = _i2cPort->requestFrom((uint8_t)_gpsI2Caddress, static_cast<uint8_t>(2));
     if (bytesReturned != 2)
     {
 #ifndef SFE_UBLOX_REDUCED_PROG_MEM
@@ -1100,8 +1105,8 @@ bool SFE_UBLOX_GNSS::checkUbloxI2C(ubxPacket *incomingUBX, uint8_t requestedClas
     }
     else // if (_i2cPort->available())
     {
-      uint8_t msb = lengthBytes[0];
-      uint8_t lsb = lengthBytes[1];
+      uint8_t msb = _i2cPort->read();
+      uint8_t lsb = _i2cPort->read();
       // if (lsb == 0xFF)
       // {
       //   //I believe this is a u-blox bug. Device should never present an 0xFF.
@@ -1147,7 +1152,7 @@ bool SFE_UBLOX_GNSS::checkUbloxI2C(ubxPacket *incomingUBX, uint8_t requestedClas
         _debugSerial->println(F("checkUbloxI2C: OK, zero bytes available"));
       }
 #endif
-      lastCheck = esp_timer_get_time() / 1000; // Put off checking to avoid I2C bus traffic
+      lastCheck = millis(); // Put off checking to avoid I2C bus traffic
       return (false);
     }
 
@@ -1219,17 +1224,12 @@ bool SFE_UBLOX_GNSS::checkUbloxI2C(ubxPacket *incomingUBX, uint8_t requestedClas
       // Here it would be desireable to use a restart where possible / supported, but only if there will be multiple reads.
       // However, if an individual requestFrom fails, we could end up leaving the bus hanging.
       // On balance, it is probably safest to not use restarts here.
-      uint8_t readBuf[64];
-      if (bytesToRead > sizeof(readBuf))
-        bytesToRead = sizeof(readBuf);
-      esp_err_t readErr = i2c_master_read_from_device(
-          _i2cPort, _gpsI2Caddress, readBuf, bytesToRead, pdMS_TO_TICKS(100));
-      uint8_t bytesReturned = (readErr == ESP_OK) ? (uint8_t)bytesToRead : 0;
+      uint8_t bytesReturned = _i2cPort->requestFrom((uint8_t)_gpsI2Caddress, (uint8_t)bytesToRead);
       if ((uint16_t)bytesReturned == bytesToRead)
       {
         for (uint16_t x = 0; x < bytesToRead; x++)
         {
-          uint8_t incoming = readBuf[x]; // Grab the actual character
+          uint8_t incoming = _i2cPort->read(); // Grab the actual character
 
           // Check to see if the first read is 0x7F. If it is, the module is not ready to respond. Stop, wait, and try again.
           // Note: the integration manual says:
@@ -4731,32 +4731,100 @@ sfe_ublox_status_e SFE_UBLOX_GNSS::sendI2cCommand(ubxPacket *outgoingUBX, uint16
 
   // i2cTransactionSize will be at least 8. We don't need to check for smaller values than that.
 
-  // Build the complete UBX frame and write it in a single I2C transaction.
-  uint16_t bytesToSend = outgoingUBX->len + 8; // sync1+sync2+cls+id+len(2)+payload+checksum(2)
-  uint8_t *frame = (uint8_t *)malloc(bytesToSend);
-  if (frame == NULL)
-    return (SFE_UBLOX_STATUS_I2C_COMM_FAILURE);
+  uint16_t bytesToSend = outgoingUBX->len + 8; // How many bytes need to be sent
+  uint16_t bytesSent = 0;                      // How many bytes have been sent
+  uint16_t bytesLeftToSend = bytesToSend;      // How many bytes remain to be sent
+  uint16_t startSpot = 0;                      // Payload pointer
 
-  uint16_t idx = 0;
-  frame[idx++] = UBX_SYNCH_1;
-  frame[idx++] = UBX_SYNCH_2;
-  frame[idx++] = outgoingUBX->cls;
-  frame[idx++] = outgoingUBX->id;
-  frame[idx++] = outgoingUBX->len & 0xFF; // LSB
-  frame[idx++] = outgoingUBX->len >> 8;   // MSB
-  for (uint16_t x = 0; x < outgoingUBX->len; x++)
-    frame[idx++] = outgoingUBX->payload[x];
-  frame[idx++] = outgoingUBX->checksumA;
-  frame[idx++] = outgoingUBX->checksumB;
+  while (bytesLeftToSend > 0)
+  {
+    uint16_t len = bytesLeftToSend; // How many bytes should we actually write?
+    if (len > i2cTransactionSize)   // Limit len to i2cTransactionSize
+      len = i2cTransactionSize;
 
-  esp_err_t i2cError = i2c_master_write_to_device(
-      _i2cPort, _gpsI2Caddress, frame, bytesToSend, pdMS_TO_TICKS(100));
-  free(frame);
+    bytesLeftToSend -= len; // Calculate how many bytes will be left after we do this write
+
+    // If bytesLeftToSend is zero, that's OK.
+    // If bytesLeftToSend is >= 2, that's OK.
+    // But if bytesLeftToSend is 1, we need to adjust len to make sure we write at least 2 bytes in the final write
+    if (bytesLeftToSend == 1)
+    {
+      len -= 1;             // Decrement len by 1
+      bytesLeftToSend += 1; // Increment bytesLeftToSend by 1
+    }
+
+    _i2cPort->beginTransmission((uint8_t)_gpsI2Caddress); // Start the transmission
+
+    if (bytesSent == 0) // Is this the first write? If it is, write the header bytes
+    {
+      _i2cPort->write(UBX_SYNCH_1); //μ - oh ublox, you're funny. I will call you micro-blox from now on.
+      _i2cPort->write(UBX_SYNCH_2); // b
+      _i2cPort->write(outgoingUBX->cls);
+      _i2cPort->write(outgoingUBX->id);
+      _i2cPort->write(outgoingUBX->len & 0xFF); // LSB
+      _i2cPort->write(outgoingUBX->len >> 8);   // MSB
+
+      bytesSent += 6;
+
+      uint16_t x = 0;
+      // Write a portion of the payload to the bus.
+      // Keep going until we reach the end of the payload (x == outgoingUBX->len)
+      // or we've sent as many bytes as we can in this transmission (bytesSent == len).
+      for (; (x < outgoingUBX->len) && (bytesSent < len); x++)
+      {
+        _i2cPort->write(outgoingUBX->payload[startSpot + x]);
+        bytesSent++;
+      }
+      startSpot += x;
+
+      // Can we write both checksum bytes?
+      // We can send both bytes now if we have exactly 2 bytes left
+      // to be sent in this transmission (bytesSent == (len - 2)).
+      if (bytesSent == (len - 2))
+      {
+        // Write checksum
+        _i2cPort->write(outgoingUBX->checksumA);
+        _i2cPort->write(outgoingUBX->checksumB);
+        bytesSent += 2;
+      }
+    }
+    else // Keep writing payload bytes. Write the checksum at the right time.
+    {
+      uint16_t x = 0;
+      // Write a portion of the payload to the bus.
+      // Keep going until we've sent as many bytes as we can in this transmission (x == len)
+      // or until we reach the end of the payload ((startSpot + x) == (outgoingUBX->len))
+      for (; (x < len) && ((startSpot + x) < (outgoingUBX->len)); x++)
+      {
+        _i2cPort->write(outgoingUBX->payload[startSpot + x]);
+        bytesSent++;
+      }
+      startSpot += x;
+
+      // Can we write both checksum bytes?
+      // We can send both bytes if we have exactly 2 bytes left to be sent (bytesSent == (bytesToSend - 2))
+      // and if there is room for 2 bytes in this transmission
+      if ((bytesSent == (bytesToSend - 2)) && (x == (len - 2)))
+      {
+        // Write checksum
+        _i2cPort->write(outgoingUBX->checksumA);
+        _i2cPort->write(outgoingUBX->checksumB);
+        bytesSent += 2;
+      }
+    }
+
+    if (bytesSent < bytesToSend) // Do we need to go round the loop again?
+    {
+      if (_i2cPort->endTransmission(_i2cStopRestart) != 0) // Don't release bus unless we have to
+        return (SFE_UBLOX_STATUS_I2C_COMM_FAILURE);        // Sensor did not ACK
+    }
+  }
+
+  // All done transmitting bytes. Release bus.
+  if (_i2cPort->endTransmission() != 0)
+    return (SFE_UBLOX_STATUS_I2C_COMM_FAILURE); // Sensor did not ACK
 
   (void)maxWait; // Do something with maxWait just to avoid the pesky compiler warnings!
-
-  if (i2cError != ESP_OK)
-    return (SFE_UBLOX_STATUS_I2C_COMM_FAILURE); // Sensor did not ACK
 
   return (SFE_UBLOX_STATUS_SUCCESS);
 }
@@ -6052,26 +6120,59 @@ bool SFE_UBLOX_GNSS::pushRawData(uint8_t *dataBytes, size_t numDataBytes, bool s
     else
       stop = false; // Use a restart
 
-    // I2C: write all the bytes in a single transaction. The u-blox DDC
-    // interface accepts UBX/NMEA data directly (there is no register address).
-    if (_pushSingleByte == true)
+    // I2C: split the data up into packets of i2cTransactionSize
+    size_t bytesLeftToWrite = numDataBytes;
+    size_t bytesWrittenTotal = 0;
+
+    if (_pushSingleByte == true) // Increment bytesLeftToWrite if we have a single byte waiting to be pushed
+      bytesLeftToWrite++;
+
+    while (bytesLeftToWrite > 0)
     {
-      _pushSingleByte = false;
-      // A lone byte would look like a random-read address, so prepend it.
-      uint8_t first[2] = {_pushThisSingleByte, dataBytes[0]};
-      if (i2c_master_write_to_device(_i2cPort, _gpsI2Caddress, first, 2,
-                                     pdMS_TO_TICKS(100)) != ESP_OK)
-        return (false);
-      dataBytes++;
-      numDataBytes--;
+      size_t bytesToWrite; // Limit bytesToWrite to i2cTransactionSize
+      if (bytesLeftToWrite > i2cTransactionSize)
+        bytesToWrite = i2cTransactionSize;
+      else
+        bytesToWrite = bytesLeftToWrite;
+
+      // If there would be one byte left to be written next time, send one byte less now
+      if ((bytesLeftToWrite - bytesToWrite) == 1)
+        bytesToWrite--;
+
+      _i2cPort->beginTransmission(_gpsI2Caddress);
+
+      size_t bytesWritten = 0;
+
+      // If _pushSingleByte is true, push it now
+      if (_pushSingleByte == true)
+      {
+        bytesWritten += _i2cPort->write(_pushThisSingleByte);         // Write the single byte
+        bytesWritten += _i2cPort->write(dataBytes, bytesToWrite - 1); // Write the bytes - but send one byte less
+        dataBytes += bytesToWrite - 1;                                // Point to fresh data
+        _pushSingleByte = false;                                      // Clear the flag
+      }
+      else
+      {
+        bytesWritten += _i2cPort->write(dataBytes, bytesToWrite); // Write the bytes
+        dataBytes += bytesToWrite;                                // Point to fresh data
+      }
+
+      bytesWrittenTotal += bytesWritten; // Update the totals
+      bytesLeftToWrite -= bytesToWrite;
+
+      if (bytesLeftToWrite > 0)
+      {
+        if (_i2cPort->endTransmission(stop) != 0) // Send a restart or stop command
+          return (false);                         // Sensor did not ACK
+      }
+      else
+      {
+        if (_i2cPort->endTransmission() != 0) // We're done. Release bus. Always use a stop here
+          return (false);                     // Sensor did not ACK
+      }
     }
 
-    if (numDataBytes > 0 &&
-        i2c_master_write_to_device(_i2cPort, _gpsI2Caddress, dataBytes,
-                                   numDataBytes, pdMS_TO_TICKS(100)) != ESP_OK)
-      return (false);
-
-    return (true); // Return true if the correct number of bytes were written
+    return (bytesWrittenTotal == numDataBytes); // Return true if the correct number of bytes were written
   }
   else // SPI
   {

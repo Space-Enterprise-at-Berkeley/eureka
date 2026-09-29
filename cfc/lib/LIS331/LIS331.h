@@ -1,8 +1,6 @@
 #ifndef __sparkfun_lis331_h__
 #define __sparkfun_lis331_h__
 
-#include "driver/i2c.h"
-#include "driver/spi_master.h"
 #include <stdint.h>
 
 #define CTRL_REG1        0x20
@@ -75,12 +73,8 @@ class LIS331
   comm_mode mode;    // comms mode, I2C or SPI
   uint8_t address;   // I2C address
   uint8_t CSPin;
-  i2c_port_t m_i2c_port = I2C_NUM_0;
-  spi_host_device_t m_spi_host = SPI2_HOST;
-  spi_device_handle_t m_spi_dev = nullptr;
   void LIS331_write(uint8_t address, uint8_t *data, uint8_t len);
   void LIS331_read(uint8_t address, uint8_t *data, uint8_t len);
-  void ensureSPI();
 };
 
 #endif

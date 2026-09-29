@@ -53,8 +53,6 @@
 
 #include <SPI.h>
 
-#include "driver/i2c.h"
-#include "esp_timer.h"
 #include "u-blox_config_keys.h"
 #include "u-blox_structs.h"
 
@@ -714,7 +712,7 @@ public:
   // Begin communication with the GNSS. Advanced users can assume success if required. Useful if the port is already outputting messages at high navigation rate.
   // Begin will then return true if "signs of life" have been seen: reception of _any_ valid UBX packet or _any_ valid NMEA header.
   // By default use the default I2C address, and use Wire port
-  bool begin(i2c_port_t i2cPort = I2C_NUM_0, uint8_t deviceAddress = 0x42, uint16_t maxWait = defaultMaxWait, bool assumeSuccess = false); // Returns true if module is detected
+  bool begin(TwoWire &wirePort = Wire, uint8_t deviceAddress = 0x42, uint16_t maxWait = defaultMaxWait, bool assumeSuccess = false); // Returns true if module is detected
   // serialPort needs to be perviously initialized to correct baud rate
   bool begin(Stream &serialPort, uint16_t maxWait = defaultMaxWait, bool assumeSuccess = false); // Returns true if module is detected
   // SPI - supply instance of SPIClass, chip select pin and SPI speed (in Hz)
@@ -1747,7 +1745,7 @@ private:
 #endif
 
   // Variables
-  i2c_port_t _i2cPort = I2C_NUM_0; // The I2C port to use
+  TwoWire *_i2cPort;              // The generic connection to user's chosen I2C hardware
   Stream *_serialPort;            // The generic connection to user's chosen Serial hardware
   Stream *_nmeaOutputPort = NULL; // The user can assign an output port to print NMEA sentences if they wish
   Stream *_debugSerial;           // The stream to send debug messages to if enabled

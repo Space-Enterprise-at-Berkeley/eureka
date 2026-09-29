@@ -16,10 +16,15 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#pragma once
+#ifndef LM75_h
 
-#include "driver/i2c.h"
-#include <cstdint>
+#define LM75_h
+
+#if defined(ARDUINO) && ARDUINO >= 100
+#include "Arduino.h"
+#else
+#include "WProgram.h"
+#endif
 
 #define LM75_ADDRESS 0x48
 
@@ -35,23 +40,24 @@
 
 class LM75 {
     int address;
-    i2c_port_t m_port;
-    uint16_t float2regdata (float);
-    float regdata2float (uint16_t);
-    uint16_t _register16 (uint8_t);
-    void _register16 (uint8_t, uint16_t);
-    uint8_t _register8 (uint8_t);
-    void _register8 (uint8_t, uint8_t);
+    word float2regdata (float);
+    float regdata2float (word);
+    word _register16 (byte);
+    void _register16 (byte, word);
+    word _register8 (byte);
+    void _register8 (byte, byte);
   public:
     LM75 ();
-    LM75 (uint8_t, i2c_port_t port = I2C_NUM_0);
+    LM75 (byte);
     float temp (void);
-    uint8_t conf (void);
-    void conf (uint8_t);
+    byte conf (void);
+    void conf (byte);
     float tos (void);
     void tos (float);
     float thyst (void);
     void thyst (float);
-    void shutdown (bool);
-    bool shutdown (void);
+    void shutdown (boolean);
+    boolean shutdown (void);
 };
+
+#endif

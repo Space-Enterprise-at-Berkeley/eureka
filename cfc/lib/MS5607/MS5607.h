@@ -8,21 +8,20 @@
 #define PROM_READ  0xA0     // prom read command
 #define RESET 0x1E          // soft reset command
 
-#include "driver/spi_master.h"
-#include <cstdint>
+#include <Arduino.h>
 
 class MS5607
 {
   public:
-    MS5607(uint8_t cs_pin, spi_host_device_t host = SPI2_HOST);
+    MS5607(uint8_t cs_pin);
     void begin();
     void setOSR(short OSR_U);
     float getTemperature(void);
     float getPressure(void);
     // void readDigitalValue(void);
     float getAltitude(void);
-    void setReferencePressure(float pressure);
-    float P0;
+    
+    const float P0 = 1013.25;
     uint8_t CS_PIN;                // Chip Select pin for SPI
     short OSR = 4096;              // default over sampling ratio
     short CONV_D1 = 0x48;          // corresponding temp conv. command for OSR
@@ -35,7 +34,7 @@ class MS5607
     int64_t OFF, SENS;
 
     void resetDevice(void);
-    void transfer(const uint8_t *tx, uint8_t *rx, size_t length);
+    void transfer(void (*callback)(uint8_t *values, int length), uint8_t *values, int length);
     void readCalibration();
     uint16_t readUInt_16(uint8_t address);
     void readBytes(uint8_t *values, int length);
@@ -46,9 +45,7 @@ class MS5607
     unsigned long getDigitalValue(void);
 
   private:
-    spi_host_device_t m_host;
-    spi_device_handle_t m_dev = nullptr;
-    int64_t convStartUs = 0;
+    uint32_t convStartMs = 0;
     enum ConvState { CONV_IDLE, CONV_WAIT_D1, CONV_WAIT_D2 };
     ConvState convState = CONV_IDLE;
 };

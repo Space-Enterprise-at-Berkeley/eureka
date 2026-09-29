@@ -15,8 +15,8 @@ namespace RadioComms {
    * @param packet The packet in which the data is stored.
    */
   void emitPacket(Comms::Packet *packet);
-  void vTaskTestRadioTransmit(void *pvParameters);
-  void vTaskTransmitCallsign(void *pvParameters);
+  uint32_t testRadioTransmit();
+  uint32_t task_transmitCallsign();
   bool isRadioEnabled();
   void processWaitingPackets();
 };

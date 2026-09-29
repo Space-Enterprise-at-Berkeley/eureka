@@ -1,55 +1,39 @@
 #include <math.h>
 #include <MS5607.h>
-#include "esp_log.h"
-#include "esp_timer.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
+#include <Wire.h>
+#include <SPI.h>
 
-static const char *TAG = "ms5607";
-
-MS5607::MS5607(uint8_t cs_pin, spi_host_device_t host)
+MS5607::MS5607(uint8_t cs_pin)
 {
   this->CS_PIN = cs_pin;
-  this->m_host = host;
-  this->P0 = 1013.25; // default reference pressure in mBar
 }
 
-// Initialise the SPI device and read calibration data
+// Initialise coefficient by reading calibration data
 void MS5607::begin()
 {
-  spi_device_interface_config_t devcfg = {};
-  devcfg.clock_speed_hz = 1000000; // 1 MHz
-  devcfg.mode = 0;
-  devcfg.spics_io_num = CS_PIN;
-  devcfg.queue_size = 1;
-  ESP_ERROR_CHECK(spi_bus_add_device(m_host, &devcfg, &m_dev));
-
+  SPI.begin(17,16,15); // SCK, MISO, MOSI
   readCalibration();
 }
-void MS5607::setReferencePressure(float pressure) {
-  // Set the reference pressure for altitude calculations
-  this->P0 = pressure;
-}
-void MS5607::transfer(const uint8_t *tx, uint8_t *rx, size_t length)
+
+void MS5607::transfer(void (*callback)(uint8_t *values, int length), uint8_t *values, int length)
 {
-  spi_transaction_t transaction = {};
-  transaction.length = length * 8;
-  transaction.tx_buffer = tx;
-  transaction.rx_buffer = rx;
-  ESP_ERROR_CHECK(spi_device_transmit(m_dev, &transaction));
+  digitalWrite(CS_PIN, LOW);
+  SPI.beginTransaction(SPISettings(1000000, MSBFIRST, SPI_MODE0));
+  callback(values, length);
+  SPI.endTransaction();
+  digitalWrite(CS_PIN, HIGH);
 }
 
 void MS5607::resetDevice(void) 
 {
-  const uint8_t cmd = RESET;
-  transfer(&cmd, nullptr, 1);
+  transfer([](uint8_t *values, int length) -> void { SPI.transfer(RESET); }, nullptr, 0);
 }
 
 // read calibration data from PROM
 void MS5607::readCalibration()
 {
   resetDevice();
-  vTaskDelay(pdMS_TO_TICKS(3));
+  delay(3);
   C1 = readUInt_16(PROM_READ + 2);
   C2 = readUInt_16(PROM_READ + 4);
   C3 = readUInt_16(PROM_READ + 6);
@@ -61,33 +45,33 @@ void MS5607::readCalibration()
 // convert raw data into unsigned int
 uint16_t MS5607::readUInt_16(uint8_t address)
 {
-  uint8_t tx[3] = {address, 0x00, 0x00};
-  uint8_t rx[3] = {0};
-  transfer(tx, rx, sizeof(tx));
-  return (((unsigned int) rx[1] * (1 << 8)) | (unsigned int) rx[2]);
+  uint8_t data[2];
+  data[0] = address;
+  readBytes(data, 2);
+  return (((unsigned int) data[0] * (1 << 8)) | (unsigned int) data[1]);
 }
 
 /** Read length bytes from the device into values array, using values[0] as the command byte. */
 void MS5607::readBytes(uint8_t *values, int length)
 {
-  uint8_t tx[8] = {0};
-  uint8_t rx[8] = {0};
-  if (length > 7) {
-    length = 7;
-  }
-  tx[0] = values[0];
-  transfer(tx, rx, length + 1);
-  for (int i = 0; i < length; i++) {
-    values[i] = rx[i + 1];
-  }
+  auto read = [](uint8_t *values, int length) 
+  {
+    SPI.transfer(values[0]);
+    for (int i = 0; i < length; i++) {
+      values[i] = SPI.transfer(0x00);
+    }
+  };
+  transfer(read, values, length);
 }
 
 
 // send command to start conversion of temp/pressure
 void MS5607::convert(uint8_t cmd)
 {
-  transfer(&cmd, nullptr, 1);
-  convStartUs = esp_timer_get_time();
+  uint8_t values[1] = { cmd };
+  transfer([](uint8_t *values, int length) -> void { SPI.transfer(values[0]); }, values, 1);
+  
+  convStartMs = millis();
 }
 
 bool MS5607::updateConversionCycle()
@@ -99,8 +83,8 @@ bool MS5607::updateConversionCycle()
       return false;
 
     case CONV_WAIT_D1:
-      if (esp_timer_get_time() - convStartUs < (int64_t)CONV_DELAY * 1000) {
-        ESP_LOGD(TAG, "early!");
+      if (millis() - convStartMs < CONV_DELAY) {
+        Serial.println("early!");
         return false;
       }
       DP = getDigitalValue();
@@ -109,8 +93,8 @@ bool MS5607::updateConversionCycle()
       return false;
 
     case CONV_WAIT_D2:
-      if (esp_timer_get_time() - convStartUs < (int64_t)CONV_DELAY * 1000) {
-        ESP_LOGD(TAG, "early!");
+      if (millis() - convStartMs < CONV_DELAY) {
+        Serial.println("early!");
         return false;
       }
       DT = getDigitalValue();
@@ -131,12 +115,10 @@ bool MS5607::updateConversionCycle()
 
 unsigned long MS5607::getDigitalValue(void) 
 {
-  uint8_t tx[4] = {ADC_READ, 0x00, 0x00, 0x00};
-  uint8_t rx[4] = {0};
-  transfer(tx, rx, sizeof(tx));
-  unsigned long value = (unsigned long) rx[1] * 1 << 16 |
-                        (unsigned long) rx[2] * 1 << 8 |
-                        (unsigned long) rx[3];
+  uint8_t data[3];
+  data[0] = ADC_READ;
+  readBytes(data, 3);
+  unsigned long value = (unsigned long) data[0] * 1 << 16 | (unsigned long) data[1] * 1 << 8 | (unsigned long) data[2];
   return value;
 }
 

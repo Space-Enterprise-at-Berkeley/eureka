@@ -1,10 +1,7 @@
-#pragma once
-
-#include <cstdint>
-
+#include <Arduino.h>
 namespace GPS {
-void init();
-void vTaskReadGPS(void *pvParameters);
-void vTaskReadGPSExtra(void *pvParameters);
-void vTaskReadGPSSatInfo(void *pvParameters);
-} // namespace GPS
+    void init();
+    uint32_t task_readGPS();
+    uint32_t task_readGPSExtra();
+    uint32_t task_readGPSSatInfo();
+}

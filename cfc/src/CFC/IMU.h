@@ -1,12 +1,14 @@
 #pragma once
 
+#include <Arduino.h>
 #include <Comms.h>
-#include <LIS331.h>
+#include <SPI.h>
 #include <LSM6DSOSensor.h>
-#include <numeric>
+#include <LIS331.h>
 #include <vector>
-#include "proto/Packet_HighIMUValues.h"
+#include <numeric>
 #include "proto/Packet_LowIMUValues.h"
+#include "proto/Packet_HighIMUValues.h"
 
 #define LOW_IMU_CS_PIN 40
 #define HIGH_IMU_CS_PIN 38
@@ -19,11 +21,11 @@
 
 // reads low and high IMU readings and sends to ground station
 namespace IMU {
-void init_lowIMU();
-void vTaskLowIMUSend(void *pvParameters);
-void getLowIMU(float *readings);
+  void init_lowIMU();
+  uint32_t task_lowIMUsend();
+  void getLowIMU(float *readings);
 
-void init_highIMU();
-void vTaskHighIMUSend(void *pvParameters);
-void getHighIMU(float *readings);
-} // namespace IMU
+  void init_highIMU();
+  uint32_t task_highIMUsend();
+  void getHighIMU(float *readings);
+}
