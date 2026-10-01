@@ -21,11 +21,11 @@ void MS5607::setReferencePressure(float pressure) {
 }
 void MS5607::transfer(void (*callback)(uint8_t *values, int length), uint8_t *values, int length)
 {
-  digitalWrite(CS_PIN, LOW);
   SPI.beginTransaction(SPISettings(1000000, MSBFIRST, SPI_MODE0));
+  digitalWrite(CS_PIN, LOW);
   callback(values, length);
-  SPI.endTransaction();
   digitalWrite(CS_PIN, HIGH);
+  SPI.endTransaction();
 }
 
 void MS5607::resetDevice(void) 

@@ -3,20 +3,21 @@
 #include <Common.h>
 #include <Comms.h>
 #include <cstring>
-#include <vector>
 #include <map>
+#include <vector>
 
 namespace RadioComms {
-  void init();
-  void processWaitingPackets();
-  /**
-   * @brief Sends packet data over ethernet and serial.
-   *
-   * @param packet The packet in which the data is stored.
-   */
-  void emitPacket(Comms::Packet *packet);
-  uint32_t testRadioTransmit();
-  uint32_t task_transmitCallsign();
-  bool isRadioEnabled();
-  void processWaitingPackets();
-};
+void init();
+void processWaitingPackets();
+/**
+ * @brief Sends packet data over ethernet and serial.
+ *
+ * @param packet The packet in which the data is stored.
+ */
+void emitPacket(Comms::Packet *packet);
+void vTaskTestRadioTransmit(void *pvParameters);
+void vTaskTransmitCallsign(void *pvParameters);
+bool isRadioEnabled();
+bool isInConfigMode();
+void processWaitingPackets();
+}; // namespace RadioComms

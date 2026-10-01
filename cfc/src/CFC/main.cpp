@@ -1,33 +1,60 @@
-#include <Arduino.h>
-#include "Common.h"
-#include <Comms.h>
-#include <USBComms.h>
-#include "Power.h"
 #include "Barometer.h"
-#include "TempSense.h"
 #include "Blackbox.h"
+#include "Common.h"
+#include "GPS.h"
+#include "IMU.h"
+#include "Power.h"
 #include "Radio.h"
-#include <Wire.h>
-#include <SPI.h>
-#include "proto/Packet_DummyData1s.h"
+#include "TempSense.h"
 #include "proto/Packet_DummyData100ms.h"
 #include "proto/Packet_DummyData10ms.h"
 #include "proto/Packet_DummyData1ms.h"
+#include "proto/Packet_DummyData1s.h"
 #include "proto/Packet_FCEnableRuncamPDB.h"
 #include "proto/Packet_FCHealth.h"
-#include "Radio.h"
-#include "IMU.h"
-#include "GPS.h"
+#include <Arduino.h>
+#include <Comms.h>
+#include <SPI.h>
+#include <USBComms.h>
+#include <Wire.h>
+
+#include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 #define LED_PIN 41
 #define PDB_ENABLE_PIN 26
+#define SPI_SCK 17
+#define SPI_MISO 16
+#define SPI_MOSI 15
+#define I2C_SDA 1
+#define I2C_SCL 2
+
+static const char *TAG = "main";
+
+static uint32_t avgTaskDelay = 0;
+static uint32_t avgTaskCounter = 0;
+static portMUX_TYPE taskDelayMux = portMUX_INITIALIZER_UNLOCKED;
+
+void taskDelayUntil(TickType_t *lastWake, TickType_t period) {
+  vTaskDelayUntil(lastWake, period);
+  uint32_t lateUs =
+      (xTaskGetTickCount() - *lastWake) * portTICK_PERIOD_MS * 1000;
+  portENTER_CRITICAL(&taskDelayMux);
+  avgTaskDelay += lateUs;
+  avgTaskCounter++;
+  portEXIT_CRITICAL(&taskDelayMux);
+}
 
 bool pinstate = 0;
-uint32_t task_helloWorld() {
-  Serial.println("my name sohom roy");
-  digitalWrite(LED_PIN, pinstate);
-  pinstate = !pinstate;
-  return 500 * 1000; // this task will run 500ms
+static void prvHelloWorldTask(void *pvParameters) {
+  TickType_t lastWake = xTaskGetTickCount();
+  while (1) {
+    ESP_LOGI(TAG, "my name sohom roy");
+    digitalWrite(LED_PIN, pinstate);
+    pinstate = !pinstate;
+    taskDelayUntil(&lastWake, pdMS_TO_TICKS(500));
+  }
 }
 
 volatile bool runcam_PDB_enabled = false;
@@ -46,61 +73,55 @@ void runcam_PDB_enable_cb(Comms::Packet packet, uint8_t ip) {
   }
 }
 
-uint32_t avgTaskDelay = 0;
-uint32_t avgTaskCounter = 0;
-Comms::Packet p;
-uint32_t task_sendCFCHealth() {
-  Serial.print("Runcam: ");
-  Serial.println(runcam_PDB_enabled ? 1 : 0);
-  PacketFCHealth::Builder()
-    .withRuncamEnabled(runcam_PDB_enabled ? 1 : 0)
-    .withAvgTaskDelay(avgTaskCounter == 0 ? 0 : avgTaskDelay / avgTaskCounter)
-    .withBlackboxWritePointer(Blackbox::getAddr())
-    .withRadioEnabled(RadioComms::isRadioEnabled() ? 1 : 0)
-    .withBlackboxEnabled(Blackbox::getEnable() ? 1 : 0)
-    .build()
-    .writeRawPacket(&p);
-  Comms::emitPacketOverAllInterfaces(&p);
-  avgTaskDelay = 0;
-  avgTaskCounter = 0;
-  return 1000*1000; // this task will run every second
+static void prvProcessWaitingPacketsTask(void *pvParameters) {
+  (void)pvParameters;
+  while (1) {
+    Comms::processWaitingPackets();
+    vTaskDelay(pdMS_TO_TICKS(1));
+  }
 }
 
+Comms::Packet p;
+static void prvSendCFCHealthTask(void *pvParameters) {
+  (void)pvParameters;
+  TickType_t lastWake = xTaskGetTickCount();
+  while (1) {
+    portENTER_CRITICAL(&taskDelayMux);
+    uint32_t delaySum = avgTaskDelay;
+    uint32_t delayCount = avgTaskCounter;
+    avgTaskDelay = 0;
+    avgTaskCounter = 0;
+    portEXIT_CRITICAL(&taskDelayMux);
 
-Task taskTable[] = {
-  {task_helloWorld, 0, true},
-  {Power::task_readSendPower, 0, true},
-  {Barometer::sampleBaro, 0, true},
-  {Barometer::averageBaro,0, true},
-  {RadioComms::task_transmitCallsign, 0, true},
-  {TempSense::task_readSendTemp, 0, true},
-  {IMU::task_lowIMUsend, 0, true},
-  {IMU::task_highIMUsend, 0, true},
-  {GPS::task_readGPS, 0, true},
-  {GPS::task_readGPSExtra, 0, true},
-  {GPS::task_readGPSSatInfo, 0, true},
-  {task_sendCFCHealth, 0, true},
-};
-
-#define TASK_COUNT (sizeof(taskTable) / sizeof (struct Task))
+    ESP_LOGI(TAG, "Runcam: %d", runcam_PDB_enabled ? 1 : 0);
+    PacketFCHealth::Builder()
+        .withRuncamEnabled(runcam_PDB_enabled ? 1 : 0)
+        .withAvgTaskDelay(delayCount == 0 ? 0 : delaySum / delayCount)
+        .withBlackboxWritePointer(Blackbox::getAddr())
+        .withRadioEnabled(RadioComms::isRadioEnabled() ? 1 : 0)
+        .withBlackboxEnabled(Blackbox::getEnable() ? 1 : 0)
+        .build()
+        .writeRawPacket(&p);
+    Comms::emitPacketOverAllInterfaces(&p);
+    taskDelayUntil(&lastWake, pdMS_TO_TICKS(1000));
+  }
+}
 
 void setup() {
-  // setup stuff here
-  pinMode(17, OUTPUT);    // SCK for SPI
-  pinMode(16, INPUT);     // MISO for SPI
-  pinMode(15, OUTPUT);    // MOSI for SPI
-  SPI.begin(17, 16, 15);
-  Wire.begin(1, 2);
+  // setup hardware protocols
+  pinMode(SPI_SCK, OUTPUT);
+  pinMode(SPI_MISO, INPUT);
+  pinMode(SPI_MOSI, OUTPUT);
+  SPI.begin(SPI_SCK, SPI_MISO, SPI_MOSI);
+  Wire.begin(I2C_SDA, I2C_SCL);
+
+  // initialize our hardware
+  pinMode(LED_PIN, OUTPUT);
   USBComms::init();
-  Serial.println("bee"); // THIS IS A LOAD-BEARING BEE, DO NOT REMOVE
-  Serial.println("bee 2");
-  // Serial.println("bee 3");
   RadioComms::init();
   Power::init();
   Barometer::init();
   TempSense::init();
-  pinMode(LED_PIN, OUTPUT);
-  pinMode(41, OUTPUT);
   IMU::init_lowIMU();
   IMU::init_highIMU();
   Comms::registerCallback(PACKET_ID_FCEnableRuncamPDB, runcam_PDB_enable_cb);
@@ -110,27 +131,23 @@ void setup() {
   GPS::init();
   Blackbox::init();
 
-  while(1) {
-    // main loop here to avoid arduino overhead
-    for(uint32_t i = 0; i < TASK_COUNT; i++) { // for each task, execute if next time >= current time
-      uint32_t ticks = micros(); // current time in microseconds
-      uint32_t diff = taskTable[i].nexttime - ticks;
-      if (diff > UINT32_MAX / 2 && taskTable[i].enabled) {
-        avgTaskDelay += -diff;
-        avgTaskCounter++;
-        uint32_t delayoftask = taskTable[i].taskCall();
-        if (delayoftask == 0) {
-          taskTable[i].enabled = false;
-        }
-        else {
-          taskTable[i].nexttime = ticks + delayoftask;
-        }
-      }
-    }
-    Comms::processWaitingPackets();
-  }
+  // schedule all of our tasks
+  xTaskCreate(prvHelloWorldTask, "hello_world", 2048, NULL, 5, NULL);
+  xTaskCreate(Power::vTaskReadSendPower, "send_power", 4096, NULL, 5, NULL);
+  xTaskCreate(Barometer::vTaskSampleBaro, "sample_baro", 4096, NULL, 5, NULL);
+  xTaskCreate(Barometer::vTaskAverageBaro, "average_baro", 4096, NULL, 5, NULL);
+  xTaskCreate(RadioComms::vTaskTransmitCallsign, "transmit_callsign", 2048,
+              NULL, 5, NULL);
+  xTaskCreate(TempSense::vTaskReadSendTemp, "send_temp", 4096, NULL, 5, NULL);
+  xTaskCreate(IMU::vTaskLowIMUSend, "send_lowimu", 4096, NULL, 5, NULL);
+  xTaskCreate(IMU::vTaskHighIMUSend, "send_highimu", 4096, NULL, 5, NULL);
+  xTaskCreate(GPS::vTaskReadGPS, "read_gps", 4096, NULL, 5, NULL);
+  xTaskCreate(GPS::vTaskReadGPSExtra, "read_gpsextra", 4096, NULL, 5, NULL);
+  xTaskCreate(GPS::vTaskReadGPSSatInfo, "read_gpssatinfo", 8192, NULL, 5, NULL);
+  xTaskCreate(prvSendCFCHealthTask, "send_cfchealth", 4096, NULL, 5, NULL);
+  xTaskCreate(prvProcessWaitingPacketsTask, "process_packets", 4096, NULL, 5,
+              NULL);
 }
 
-void loop() {
-
-} // unused
+// setup() runs in the Arduino loop task; delete it so it doesn't spin on core 1
+void loop() { vTaskDelete(NULL); }
