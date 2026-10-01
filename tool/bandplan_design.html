@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Frequency Band Plan Designer</title>
+<style>
+:root{--bg:#f5f7fa;--panel:#fff;--ink:#17202a;--muted:#65717e;--line:#d8dee6;--accent:#2563eb;--accent2:#1d4ed8;--danger:#dc2626;--shadow:0 2px 12px #0000000d}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.35 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+header{padding:18px 24px;background:#111827;color:#fff;display:flex;align-items:center;gap:18px}
+header h1{font-size:19px;margin:0;font-weight:650} header span{color:#aeb9c8;font-size:13px}
+main{display:grid;grid-template-columns:330px 1fr;min-height:calc(100vh - 62px)}
+aside{background:#eef1f5;border-right:1px solid var(--line);padding:16px;overflow:auto}
+section{background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:13px;margin-bottom:12px;box-shadow:var(--shadow)}
+section h2{font-size:13px;margin:0 0 10px;text-transform:uppercase;letter-spacing:.06em;color:#4b5563}
+label{display:block;font-size:12px;font-weight:600;color:#4b5563;margin:8px 0 4px}
+input,select,button{font:inherit}input,select{width:100%;padding:7px 8px;border:1px solid #cbd3dd;border-radius:6px;background:white;color:var(--ink)}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:8px}.row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:7px}
+button{border:1px solid #c8d0da;border-radius:6px;padding:7px 10px;background:white;color:#25303b;cursor:pointer}
+button:hover{background:#f3f5f8}button.primary{background:var(--accent);border-color:var(--accent);color:#fff}button.primary:hover{background:var(--accent2)}
+button.danger{color:var(--danger)}button.small{padding:4px 7px;font-size:12px}
+.buttonrow{display:flex;gap:7px;flex-wrap:wrap}.hint{color:var(--muted);font-size:11px;margin-top:6px}
+#categoryList{display:grid;gap:6px}.cat{display:grid;grid-template-columns:26px 1fr 28px;align-items:center;gap:6px}.cat input[type=color]{padding:1px;width:26px;height:26px}.cat button{padding:3px}
+.content{padding:18px;min-width:0}.toolbar{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap}
+.toolbar h2{margin:0;font-size:18px}.toolbar .right{display:flex;gap:7px}
+#canvasWrap{background:#fff;border:1px solid var(--line);border-radius:10px;box-shadow:var(--shadow);overflow:auto}
+#planSvg{display:block;width:100%;min-width:760px;height:auto}
+.tableWrap{margin-top:14px;background:#fff;border:1px solid var(--line);border-radius:10px;overflow:auto;box-shadow:var(--shadow)}
+table{border-collapse:collapse;width:100%;font-size:12px}th,td{padding:7px 8px;border-bottom:1px solid #e5e8ec;text-align:left;white-space:nowrap}th{background:#f7f8fa;color:#56616d;position:sticky;top:0}tbody tr:hover{background:#f8fafc}
+.tagdot{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:5px;vertical-align:middle}
+.empty{color:var(--muted);padding:20px;text-align:center}
+.status{font-size:12px;color:#5c6672}
+@media(max-width:900px){main{grid-template-columns:1fr}aside{border-right:0;border-bottom:1px solid var(--line);max-height:none}.content{padding:10px}}
+</style>
+</head>
+<body>
+<header><h1>Frequency Band Plan Designer</h1><span>Portable, single-file RF spectrum planning tool</span></header>
+<main>
+<aside>
+<section>
+<h2>Band plan</h2>
+<label>Plan name</label><input id="planName" value="Untitled Band Plan">
+<label>Visible range name</label><input id="rangeName" value="Visible Spectrum">
+<div class="row">
+<div><label>Start frequency</label><input id="rangeStart" type="number" step="any" value="0"></div>
+<div><label>Stop frequency</label><input id="rangeStop" type="number" step="any" value="1000"></div>
+</div>
+<label>Frequency unit</label><select id="unit"><option value="Hz">Hz</option><option value="kHz">kHz</option><option value="MHz" selected>MHz</option><option value="GHz">GHz</option></select>
+<div class="buttonrow" style="margin-top:10px"><button class="primary" onclick="addOccupant()">+ Add occupant</button><button onclick="fitRange()">Fit to occupants</button></div>
+<div class="hint">The range is interpreted in the selected unit. You can mix Hz/kHz/MHz/GHz only by changing the displayed unit and entering equivalent numeric values.</div>
+</section>
+
+<section>
+<h2>Display</h2>
+<label>Sort occupants</label><select id="sortMode" onchange="renderAll()">
+<option value="freq">Frequency</option><option value="category">Category, then frequency</option><option value="name">Name</option><option value="width">Bandwidth, widest first</option>
+</select>
+<label>Row layout</label><select id="rowMode" onchange="renderAll()"><option value="category">Group by category</option><option value="occupant">One row per occupant</option></select>
+<label>Show labels</label><select id="labelMode" onchange="renderAll()"><option value="auto">Automatic</option><option value="always">Always</option><option value="never">Never</option></select>
+</section>
+
+<section>
+<h2>Categories / tags</h2>
+<div id="categoryList"></div>
+<div class="buttonrow" style="margin-top:9px"><button onclick="addCategory()">+ Category</button><button onclick="resetCategories()">Reset defaults</button></div>
+</section>
+
+<section>
+<h2>File</h2>
+<div class="buttonrow"><button onclick="exportJSON()">Export JSON</button><button onclick="document.getElementById('jsonFile').click()">Import JSON</button><input id="jsonFile" type="file" accept=".json,application/json" hidden onchange="importJSON(event)"></div>
+<div class="buttonrow" style="margin-top:7px"><button onclick="exportCSV()">Export CSV</button><button onclick="document.getElementById('csvFile').click()">Import CSV</button><input id="csvFile" type="file" accept=".csv,text/csv" hidden onchange="importCSV(event)"><button onclick="exportSVG()">Export SVG</button><button onclick="exportPNG()">Export PNG</button></div>
+<div class="hint">JSON is the reloadable project format. CSV is convenient for spreadsheets and scripting. SVG/PNG export the rendered plan.</div>
+</section>
+</aside>
+
+<div class="content">
+<div class="toolbar"><div><h2 id="titlePreview">Untitled Band Plan</h2><div class="status" id="rangePreview"></div></div><div class="right"><button onclick="addOccupant()">+ Occupant</button><button class="danger" onclick="clearOccupants()">Clear occupants</button></div></div>
+<div id="canvasWrap"><svg id="planSvg" xmlns="http://www.w3.org/2000/svg" role="img"></svg></div>
+<div class="tableWrap"><table><thead><tr><th>Name</th><th>Category</th><th>Start</th><th>Stop</th><th>Center</th><th>Span</th><th>Notes</th><th></th></tr></thead><tbody id="occupantTable"></tbody></table></div>
+</div>
+</main>
+
+<script>
+const $=id=>document.getElementById(id);
+const defaultCats=[
+ {id:"telemetry",name:"Telemetry",color:"#2563eb"},
+ {id:"control",name:"Control",color:"#16a34a"},
+ {id:"navigation",name:"Navigation",color:"#9333ea"},
+ {id:"radar",name:"Radar",color:"#dc2626"},
+ {id:"satcom",name:"Satcom",color:"#ea580c"},
+ {id:"other",name:"Other",color:"#64748b"}
+];
+let state={planName:"Untitled Band Plan",rangeName:"Visible Spectrum",rangeStart:0,rangeStop:1000,unit:"MHz",categories:structuredClone(defaultCats),occupants:[]};
+
+function uid(){return Math.random().toString(36).slice(2)+Date.now().toString(36)}
+function esc(s){return String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]))}
+function fmt(x){return Number(x).toLocaleString(undefined,{maximumFractionDigits:9})}
+function cat(id){return state.categories.find(c=>c.id===id)||state.categories[state.categories.length-1]}
+function syncInputs(){ $("planName").value=state.planName;$("rangeName").value=state.rangeName;$("rangeStart").value=state.rangeStart;$("rangeStop").value=state.rangeStop;$("unit").value=state.unit }
+["planName","rangeName","rangeStart","rangeStop","unit"].forEach(id=>$(id).addEventListener("input",()=>{
+ state.planName=$("planName").value;state.rangeName=$("rangeName").value;state.rangeStart=+$("rangeStart").value;state.rangeStop=+$("rangeStop").value;state.unit=$("unit").value;renderAll();
+}));
+
+function addCategory(){
+ const n="Category "+(state.categories.length+1), id=uid();
+ state.categories.push({id,name:n,color:"#"+Math.floor(Math.random()*0xffffff).toString(16).padStart(6,"0")});
+ renderAll();
+}
+function resetCategories(){if(confirm("Reset categories? Existing occupants keep their category IDs; unmatched ones will fall back to Other.")){state.categories=structuredClone(defaultCats);renderAll()}}
+function renderCategories(){
+ $("categoryList").innerHTML=state.categories.map(c=>`<div class="cat"><input type="color" value="${c.color}" onchange="editCat('${c.id}','color',this.value)"><input value="${esc(c.name)}" onchange="editCat('${c.id}','name',this.value)"><button class="small danger" title="Delete" onclick="deleteCat('${c.id}')">×</button></div>`).join("");
+}
+function editCat(id,k,v){let c=cat(id);if(c)c[k]=v;renderAll()}
+function deleteCat(id){
+ if(state.categories.length<=1)return alert("Keep at least one category.");
+ state.occupants.forEach(o=>{if(o.category===id)o.category=state.categories[0].id});
+ state.categories=state.categories.filter(c=>c.id!==id);renderAll();
+}
+
+function addOccupant(){
+ const c=state.categories[0]||defaultCats[0];
+ state.occupants.push({id:uid(),name:"New occupant",category:c.id,start:100,stop:150,notes:""});
+ if(state.rangeStop<=state.rangeStart){state.rangeStart=0;state.rangeStop=1000}
+ renderAll();
+ setTimeout(()=>{const e=document.querySelector(`input[data-occ="${state.occupants.at(-1).id}"]`);if(e){e.focus();e.select()}},0)
+}
+function updateOcc(id,k,v){const o=state.occupants.find(x=>x.id===id);if(o){o[k]=k==="start"||k==="stop"?+v:v}renderAll()}
+function deleteOcc(id){state.occupants=state.occupants.filter(o=>o.id!==id);renderAll()}
+function clearOccupants(){if(confirm("Remove all occupants?")){state.occupants=[];renderAll()}}
+function normalized(o){let a=+o.start,b=+o.stop;if(b<a)[a,b]=[b,a];return {a,b,center:(a+b)/2,span:b-a}}
+function sorted(){
+ const a=[...state.occupants], mode=$("sortMode").value;
+ return a.sort((x,y)=>{
+  if(mode==="category")return cat(x.category).name.localeCompare(cat(y.category).name)||normalized(x).a-normalized(y).a;
+  if(mode==="name")return x.name.localeCompare(y.name);
+  if(mode==="width")return normalized(y).span-normalized(x).span;
+  return normalized(x).a-normalized(y).a;
+ });
+}
+function fitRange(){
+ if(!state.occupants.length)return;
+ const vals=state.occupants.flatMap(o=>[normalized(o).a,normalized(o).b]), lo=Math.min(...vals),hi=Math.max(...vals),pad=(hi-lo||1)*.05;
+ state.rangeStart=lo-pad;state.rangeStop=hi+pad;syncInputs();renderAll();
+}
+function renderAll(){renderCategories();renderSvg();renderTable();$("titlePreview").textContent=state.planName||"Untitled Band Plan";$("rangePreview").textContent=`${state.rangeName||"Visible Spectrum"} · ${fmt(state.rangeStart)}–${fmt(state.rangeStop)} ${state.unit}`;saveLocal()}
+function renderTable(){
+ $("occupantTable").innerHTML=sorted().map(o=>{
+ const n=normalized(o);
+ return `<tr><td><input data-occ="${o.id}" value="${esc(o.name)}" onchange="updateOcc('${o.id}','name',this.value)"></td>
+ <td><select onchange="updateOcc('${o.id}','category',this.value)">${state.categories.map(x=>`<option value="${x.id}" ${x.id===o.category?"selected":""}>${esc(x.name)}</option>`).join("")}</select></td>
+ <td><input type="number" step="any" value="${n.a}" onchange="updateOccFreq('${o.id}','start',this.value)"></td>
+ <td><input type="number" step="any" value="${n.b}" onchange="updateOccFreq('${o.id}','stop',this.value)"></td>
+ <td><input type="number" step="any" value="${fmt(n.center)}" onchange="updateOccFreq('${o.id}','center',this.value)"></td>
+ <td><input type="number" step="any" value="${fmt(n.span)}" min="0" onchange="updateOccFreq('${o.id}','span',this.value)"></td>
+ <td><input value="${esc(o.notes)}" onchange="updateOcc('${o.id}','notes',this.value)"></td>
+ <td><button class="small danger" onclick="deleteOcc('${o.id}')">Delete</button></td></tr>`
+ }).join("")||`<tr><td colspan="8" class="empty">No band occupants yet. Add one above.</td></tr>`;
+}
+function updateOccFreq(id,mode,value){
+ const o=state.occupants.find(x=>x.id===id); if(!o)return;
+ const v=Number(value); if(!Number.isFinite(v))return;
+ const n=normalized(o);
+ if(mode==="start")o.start=v;
+ else if(mode==="stop")o.stop=v;
+ else if(mode==="center"){o.start=v-n.span/2;o.stop=v+n.span/2}
+ else if(mode==="span"){o.start=n.center-v/2;o.stop=n.center+v/2}
+ renderAll();
+}
+function renderSvg(){
+ const svg=$("planSvg"), W=1200, left=78,right=24, top=74, axisY=116, rowH=48, bottom=58;
+ const lo=+state.rangeStart,hi=+state.rangeStop, span=hi-lo||1, items=sorted();
+ let groups;
+ if($("rowMode").value==="category"){
+  const ids=[...new Set(items.map(o=>o.category))];groups=ids.flatMap(id=>[{type:"header",id},...items.filter(o=>o.category===id).map(o=>({type:"occ",o}))]);
+ }else groups=items.map(o=>({type:"occ",o}));
+ const H=top+groups.length*rowH+bottom, plotW=W-left-right;
+ const x=f=>left+(f-lo)/span*plotW;
+ let s=`<rect width="${W}" height="${H}" fill="white"/>
+ <text x="${left}" y="30" font-size="20" font-weight="650" fill="#17202a">${esc(state.planName)}</text>
+ <text x="${left}" y="51" font-size="12" fill="#65717e">${esc(state.rangeName)} · ${fmt(lo)}–${fmt(hi)} ${esc(state.unit)}</text>
+ <line x1="${left}" x2="${W-right}" y1="${axisY}" y2="${axisY}" stroke="#9aa5b1"/>`;
+ const ticks=niceTicks(lo,hi,10);
+ ticks.forEach(t=>{let xx=x(t);s+=`<line x1="${xx}" x2="${xx}" y1="${axisY-7}" y2="${H-bottom}" stroke="#e2e6eb"/><text x="${xx}" y="${axisY-13}" text-anchor="middle" font-size="11" fill="#65717e">${fmt(t)}</text>`});
+ let y=top;
+ groups.forEach(g=>{
+  if(g.type==="header"){
+   const c=cat(g.id);s+=`<rect x="${left}" y="${y}" width="${plotW}" height="${rowH}" fill="${c.color}14"/><rect x="${left}" y="${y}" width="5" height="${rowH}" fill="${c.color}"/><text x="${left+14}" y="${y+29}" font-size="12" font-weight="650" fill="#33404d">${esc(c.name)}</text>`;
+  }else{
+   const o=g.o,n=normalized(o),c=cat(o.category),x1=Math.max(left,x(n.a)),x2=Math.min(W-right,x(n.b)),ww=Math.max(2,x2-x1);
+   const inside=n.a>=lo&&n.b<=hi, opacity=inside?1:.78;
+   s+=`<rect x="${x1}" y="${y+7}" width="${ww}" height="${rowH-14}" rx="4" fill="${c.color}" fill-opacity="${opacity}" stroke="${c.color}" stroke-width="1" data-id="${o.id}"/>`;
+   const show=$("labelMode").value==="always"||($("labelMode").value==="auto"&&ww>75);
+   if(show)s+=`<text x="${x1+7}" y="${y+27}" font-size="11" font-weight="600" fill="#fff" clip-path="url(#clip)">${esc(o.name)}</text>`;
+   if(n.a<lo||n.b>hi)s+=`<text x="${Math.min(W-right-4,Math.max(left+4,x1+ww/2))}" y="${y+42}" text-anchor="middle" font-size="9" fill="#65717e">extends beyond view</text>`;
+  } y+=rowH;
+ });
+ s+=`<text x="${W-right}" y="${H-15}" text-anchor="end" font-size="10" fill="#7a8590">${state.unit}</text>`;
+ svg.setAttribute("viewBox",`0 0 ${W} ${H}`);svg.setAttribute("width",W);svg.setAttribute("height",H);svg.innerHTML=s;
+}
+function niceTicks(lo,hi,n){
+ const raw=(hi-lo)/n, p=10**Math.floor(Math.log10(raw)), q=raw/p, step=q<=1?p:q<=2?2*p:q<=5?5*p:10*p;
+ const out=[];for(let t=Math.ceil(lo/step)*step;t<=hi+step*.00001;t+=step)out.push(+t.toPrecision(12));return out;
+}
+
+function download(name,blob){const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)}
+function project(){return {...state,version:1,exportedAt:new Date().toISOString()}}
+function exportJSON(){download((state.planName||"band-plan").replace(/[^\w.-]+/g,"_")+".json",new Blob([JSON.stringify(project(),null,2)],{type:"application/json"}))}
+function csvCell(v){return `"${String(v??"").replace(/"/g,'""')}"`}
+function exportCSV(){
+ const rows=[["name","category","start","stop","center","span","unit","notes"]];
+ state.occupants.forEach(o=>{let n=normalized(o);rows.push([o.name,cat(o.category).name,n.a,n.b,n.center,n.span,state.unit,o.notes])});
+ download((state.planName||"band-plan").replace(/[^\w.-]+/g,"_")+".csv",new Blob([rows.map(r=>r.map(csvCell).join(",")).join("\\n")],{type:"text/csv"}))
+}
+function exportSVG(){
+ const svg=$("planSvg").cloneNode(true);svg.setAttribute("xmlns","http://www.w3.org/2000/svg");const str=new XMLSerializer().serializeToString(svg);
+ download((state.planName||"band-plan").replace(/[^\w.-]+/g,"_")+".svg",new Blob([str],{type:"image/svg+xml"}))
+}
+function exportPNG(){
+ const svg=$("planSvg"),str=new XMLSerializer().serializeToString(svg),url="data:image/svg+xml;charset=utf-8,"+encodeURIComponent(str),img=new Image();
+ img.onload=()=>{const c=document.createElement("canvas"),scale=2;c.width=svg.viewBox.baseVal.width*scale;c.height=svg.viewBox.baseVal.height*scale;const ctx=c.getContext("2d");ctx.fillStyle="#fff";ctx.fillRect(0,0,c.width,c.height);ctx.drawImage(img,0,0,c.width,c.height);c.toBlob(b=>download((state.planName||"band-plan").replace(/[^\w.-]+/g,"_")+".png",b),"image/png")};img.src=url;
+}
+function parseCSV(text){
+ const rows=[];let row=[],cell="",quoted=false;
+ for(let i=0;i<text.length;i++){const ch=text[i],nx=text[i+1];
+  if(quoted){if(ch==='"'&&nx==='"'){cell+='"';i++}else if(ch==='"')quoted=false;else cell+=ch}
+  else if(ch==='"')quoted=true;
+  else if(ch===','){row.push(cell);cell=""}
+  else if(ch==='\n'){row.push(cell);rows.push(row);row=[];cell=""}
+  else if(ch!=='\r')cell+=ch;
+ }
+ if(cell!==""||row.length){row.push(cell);rows.push(row)}
+ return rows.filter(r=>r.some(x=>x.trim()!==""));
+}
+function importCSV(e){
+ const f=e.target.files[0];if(!f)return;
+ const r=new FileReader();r.onload=()=>{
+  try{
+   const rows=parseCSV(r.result);if(rows.length<2)throw Error();
+   const h=rows[0].map(x=>x.trim().toLowerCase()),idx=n=>h.indexOf(n);
+   const ni=idx("name"),ci=idx("category"),si=idx("start"),ei=idx("stop"),mi=idx("center"),pi=idx("span"),oi=idx("notes"),ui=idx("unit");
+   if(ni<0)throw Error();
+   const imported=[];
+   for(let i=1;i<rows.length;i++){const r=rows[i],name=(r[ni]||"").trim();if(!name)continue;
+    let a,b;
+    if(si>=0&&ei>=0&&r[si]!==""&&r[ei]!==""){a=Number(r[si]);b=Number(r[ei])}
+    else if(mi>=0&&pi>=0&&r[mi]!==""&&r[pi]!==""){let c=Number(r[mi]),sp=Number(r[pi]);a=c-sp/2;b=c+sp/2}
+    else continue;
+    if(!Number.isFinite(a)||!Number.isFinite(b))continue;
+    const cname=ci>=0?(r[ci]||"").trim():"Other";
+    let c=state.categories.find(x=>x.name.toLowerCase()===cname.toLowerCase());
+    if(!c){c={id:uid(),name:cname||"Other",color:"#64748b"};state.categories.push(c)}
+    imported.push({id:uid(),name,category:c.id,start:a,stop:b,notes:oi>=0?(r[oi]||""):""});
+   }
+   if(!imported.length)throw Error();
+   const replace=confirm(`Found ${imported.length} occupant${imported.length===1?"":"s"}. OK = replace current occupants; Cancel = append.`);
+   state.occupants=replace?imported:state.occupants.concat(imported);
+   if(ui>=0&&rows[1][ui]&&["Hz","kHz","MHz","GHz"].includes(rows[1][ui].trim()))state.unit=rows[1][ui].trim();
+   syncInputs();renderAll();
+  }catch(err){alert("Could not import CSV. Use headers including name and either start/stop or center/span.")}
+ };r.readAsText(f);e.target.value="";
+}
+function saveLocal(){try{localStorage.setItem("freqBandPlan",JSON.stringify(state))}catch(e){}}
+function loadLocal(){try{const x=JSON.parse(localStorage.getItem("freqBandPlan"));if(x)state={...state,...x}}catch(e){}}
+function importJSON(e){const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{const x=JSON.parse(r.result);if(!x.occupants||!x.categories)throw Error();state={...state,...x};syncInputs();renderAll()}catch(err){alert("That file does not look like a Frequency Band Plan project.")}};r.readAsText(f);e.target.value=""}
+loadLocal();syncInputs();renderAll();
+</script>
+</body>
+</html>
