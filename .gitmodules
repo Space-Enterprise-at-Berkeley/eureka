@@ -1,0 +1,3 @@
+[submodule "dGSE/esp-eth-drivers"]
+	path = dGSE/esp-eth-drivers
+	url = https://github.com/espressif/esp-eth-drivers/
