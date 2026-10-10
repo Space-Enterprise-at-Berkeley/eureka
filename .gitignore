@@ -4,3 +4,5 @@
 .ccls-cache/
 __pycache__/
 .pio/
+*/compile_commands.json
+*/.clangd

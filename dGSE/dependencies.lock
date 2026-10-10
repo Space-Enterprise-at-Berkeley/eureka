@@ -1,0 +1,19 @@
+dependencies:
+  espressif/wiznet_common:
+    dependencies:
+    - name: idf
+      version: '>=5.3'
+    source:
+      path: esp-eth-drivers/wiznet_common
+      type: local
+    version: 1.0.0
+  idf:
+    source:
+      type: idf
+    version: 6.1.0
+direct_dependencies:
+- espressif/wiznet_common
+- idf
+manifest_hash: c1225c57a39763112a12a99ed872a6a927a5677ed84467565c06e027e2886d9a
+target: esp32s3
+version: 3.0.0

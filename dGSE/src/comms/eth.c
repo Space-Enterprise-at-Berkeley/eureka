@@ -1,0 +1,150 @@
+#include "comms/eth.h"
+#include "comms/card.h"
+#include "driver/gpio.h"
+#include "driver/spi_common.h"
+#include "driver/spi_master.h"
+#include "esp_attr.h"
+#include "esp_err.h"
+#include "esp_eth_com.h"
+#include "esp_eth_driver.h"
+#include "esp_eth_mac.h"
+#include "esp_eth_mac_w5500.h"
+#include "esp_eth_phy.h"
+#include "esp_eth_phy_w5500.h"
+
+#include "esp_eth.h"
+#include "esp_event.h"
+#include "esp_event_base.h"
+#include "esp_log_level.h"
+#include "freertos/idf_additions.h"
+#include "hal/spi_types.h"
+#include "lwip/err.h"
+#include "lwip/netif.h"
+#include "lwip/pbuf.h"
+#include "portmacro.h"
+#include <stdint.h>
+
+#include "esp_log.h"
+
+const char *TAG = "ETH";
+
+static void IRAM_ATTR eth_event_handler(void *arg, esp_event_base_t event_base,
+                                        int32_t event_id, void *event_data) {
+
+  esp_eth_handle_t handle = *(esp_eth_handle_t *)event_data;
+
+  switch (event_id) {
+  case ETHERNET_EVENT_CONNECTED:
+    esp_eth_ioctl(handle, ETH_CMD_G_MAC_ADDR, &mac_addr);
+    ESP_LOGI(TAG, "Eth Link up w/ addr %02x:%02x:%02x:%02x:%02x:%02. yay",
+             mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4],
+             mac_addr[5]);
+    xSemaphoreGive(eth_startup_sem);
+    break;
+  case ETHERNET_EVENT_START:
+    ESP_LOGI(TAG, "Ethernet Started up :33333");
+    break;
+  default:
+    break;
+  }
+}
+
+/* MACRAW allows us to transmit raw frames */
+SemaphoreHandle_t output_sem = 0;
+err_t link_output(struct netif *netif, struct pbuf *p) {
+  channel_t *channel = netif->state;
+  portMUX_TYPE spinlock = portMUX_INITIALIZER_UNLOCKED;
+  /* Avoid race between tx and rx on eth */
+  portENTER_CRITICAL_ISR(&spinlock);
+  xSemaphoreTake(output_sem, 0);
+  err_t err = esp_eth_transmit(channel->eth_hdl, p->payload, p->len);
+  xSemaphoreGive(output_sem);
+  portEXIT_CRITICAL_ISR(&spinlock);
+  if (err != ESP_OK) {
+    return ERR_ABRT;
+  }
+  return ERR_OK;
+}
+
+esp_err_t
+setup_eth_link(esp_eth_handle_t **hdl,
+               esp_err_t (*frame_handler)(esp_eth_handle_t hdl, uint8_t *buf,
+                                          uint32_t length, void *priv),
+               void *cardtable) {
+  /* W5500 SPI Bus Initialization Code */
+
+  /* Initialize GPIO interrupt service for SPI Ethernet */
+  gpio_install_isr_service(0);
+  eth_startup_sem = xSemaphoreCreateBinary();
+  xSemaphoreGive(eth_startup_sem);
+  xSemaphoreTake(eth_startup_sem, 0);
+
+  output_sem = xSemaphoreCreateMutex();
+  xSemaphoreGive(output_sem);
+  if (output_sem == 0) {
+    ESP_LOGI(TAG, "failed to grab output semaphore!!!!! how...");
+  }
+
+  spi_device_handle_t spi_hdl = NULL;
+  spi_bus_config_t buscfg = {
+      .miso_io_num = ETH_MODULE_SPI_MISO_GPIO,
+      .mosi_io_num = ETH_MODULE_SPI_MOSI_GPIO,
+      .sclk_io_num = ETH_MODULE_SPI_CLK_GPIO,
+      .quadhd_io_num = -1,
+      .quadwp_io_num = -1,
+  };
+
+  esp_err_t spi_init_err;
+  if ((spi_init_err = spi_bus_initialize(SPI2_HOST, &buscfg, 1)) != ESP_OK) {
+    return spi_init_err;
+  }
+
+  /* SPI Device configuration for the W5500 Module */
+  spi_device_interface_config_t spi_devcfg = {
+      .mode = 0,
+      .clock_speed_hz = ETH_MODULE_SPI_SPEED_MHZ * 1000 * 1000,
+      .queue_size = 16,
+      .spics_io_num = ETH_MODULE_SPI_CS_GPIO};
+
+  eth_w5500_config_t w5500_cfg =
+      ETH_W5500_DEFAULT_CONFIG(SPI2_HOST, &spi_devcfg);
+
+  w5500_cfg.base.int_gpio_num = ETH_MODULE_SPI_INT_GPIO;
+
+  /* PHY and MAC Setup */
+
+  eth_mac_config_t mac_config = ETH_MAC_DEFAULT_CONFIG();
+
+  /* Apparently this value can be modified in case of stack overflows.
+   *  The Docs say that it should be increased but I doubt this (currently
+   * default).
+   */
+  mac_config.rx_task_stack_size = 4096;
+
+  /* TODO: Fix Multicast Blocking. w5500 is started in MACRAW mode by driver */
+  esp_eth_mac_t *mac = esp_eth_mac_new_w5500(&w5500_cfg, &mac_config);
+
+  eth_phy_config_t phy_config = ETH_PHY_DEFAULT_CONFIG();
+
+  esp_eth_phy_t *phy = esp_eth_phy_new_w5500(&phy_config);
+
+  /* ESP Ethernet Driver Setup */
+
+  esp_eth_config_t config = ETH_DEFAULT_CONFIG(mac, phy);
+  esp_eth_handle_t *handle = malloc(
+      sizeof(esp_eth_handle_t)); /* Heap allocated to allow pass by reference.
+                                    Remember to dealloc at end of main */
+
+  esp_eth_driver_install(&config, handle);
+  esp_event_loop_create_default();
+  esp_event_handler_register(ETH_EVENT, ESP_EVENT_ANY_ID, &eth_event_handler,
+                             NULL);
+  esp_eth_start(*handle);
+
+  /* Install Frame Handler and Return Handle */
+
+  esp_eth_update_input_path(*handle, frame_handler, NULL);
+  *hdl = handle;
+
+  return ESP_OK;
+}
