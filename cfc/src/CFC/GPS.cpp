@@ -16,8 +16,6 @@ static const char *TAG = "gps";
 
 SFE_UBLOX_GNSS myGNSS;
 
-static SemaphoreHandle_t gpsLock;
-
 namespace GPS {
 uint8_t SIV_f = 0;
 float latitude_deg, longitude_deg, altitude_m;
@@ -31,8 +29,6 @@ float fixType_f;
 uint32_t gpsRate = 50 * 1000; // 20 Hz
 
 void init() {
-  gpsLock = xSemaphoreCreateMutex();
-
   myGNSS.begin(Wire, GPS_I2C_ADDR);
   myGNSS.setPortOutput(COM_PORT_I2C,
                        COM_TYPE_UBX); // Set the I2C port to output UBX only
@@ -53,10 +49,10 @@ void vTaskReadGPS(void *pvParameters) {
   Comms::Packet p;
   TickType_t lastWake = xTaskGetTickCount();
   while (1) {
-    xSemaphoreTake(gpsLock, portMAX_DELAY);
+    xSemaphoreTake(Comms::i2cLock, portMAX_DELAY);
     bool haveFix = myGNSS.getHNRPVT();
     UBX_HNR_PVT_data_t data = myGNSS.packetUBXHNRPVT->data;
-    xSemaphoreGive(gpsLock);
+    xSemaphoreGive(Comms::i2cLock);
 
     if (!haveFix) {
       taskDelayUntil(&lastWake, pdMS_TO_TICKS(gpsRate / 1000));
@@ -103,11 +99,11 @@ void vTaskReadGPSExtra(void *pvParameters) {
   Comms::Packet p;
   TickType_t lastWake = xTaskGetTickCount();
   while (1) {
-    xSemaphoreTake(gpsLock, portMAX_DELAY);
+    xSemaphoreTake(Comms::i2cLock, portMAX_DELAY);
     bool haveFix = myGNSS.getPVT() && myGNSS.getNAVATT();
     UBX_NAV_PVT_data_t data = myGNSS.packetUBXNAVPVT->data;
     UBX_NAV_ATT_data_t attData = myGNSS.packetUBXNAVATT->data;
-    xSemaphoreGive(gpsLock);
+    xSemaphoreGive(Comms::i2cLock);
 
     if (!haveFix) {
       taskDelayUntil(&lastWake, pdMS_TO_TICKS(500));
@@ -141,7 +137,7 @@ void vTaskReadGPSSatInfo(void *pvParameters) {
     uint8_t siv = 0;
     bool haveFix;
 
-    xSemaphoreTake(gpsLock, portMAX_DELAY);
+    xSemaphoreTake(Comms::i2cLock, portMAX_DELAY);
     haveFix = myGNSS.getNAVSAT();
     if (haveFix) {
       // Copy the satellite blocks out while we still hold the lock: the
@@ -156,7 +152,7 @@ void vTaskReadGPSSatInfo(void *pvParameters) {
         cno[i] = sat.cno;
       }
     }
-    xSemaphoreGive(gpsLock);
+    xSemaphoreGive(Comms::i2cLock);
 
     if (!haveFix) {
       taskDelayUntil(&lastWake, pdMS_TO_TICKS(500));

@@ -17,7 +17,9 @@ void vTaskReadSendTemp(void *pvParameters) {
   Comms::Packet p;
   TickType_t lastWake = xTaskGetTickCount();
   while (1) {
+    xSemaphoreTake(Comms::i2cLock, portMAX_DELAY);
     float tC = lm.temp();
+    xSemaphoreGive(Comms::i2cLock);
 
     PacketFCTemperature::Builder().withTemp(tC).build().writeRawPacket(&p);
     Comms::emitPacketOverAllInterfaces(&p);

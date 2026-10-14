@@ -16,6 +16,7 @@ bool showPacketRecv = true;
 // serializes emits so packets from different tasks don't interleave on the
 // wire or race on the blackbox write address
 static SemaphoreHandle_t emitLock = xSemaphoreCreateMutex();
+SemaphoreHandle_t i2cLock = xSemaphoreCreateMutex();
 
 void processWaitingPackets() {
   USBComms::processWaitingPackets();

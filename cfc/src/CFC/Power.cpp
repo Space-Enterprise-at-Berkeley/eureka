@@ -17,9 +17,11 @@ void vTaskReadSendPower(void *pvParameters) {
   TickType_t lastWake = xTaskGetTickCount();
   while (1) {
     // read the ina
+    xSemaphoreTake(Comms::i2cLock, portMAX_DELAY);
     float busVoltage = ina.readBusVoltage();
     float shuntCurrent = ina.readCurrent();
     float power = ina.readPower();
+    xSemaphoreGive(Comms::i2cLock);
 
     // make Packet
     Packet24VSupplyStats::Builder()
