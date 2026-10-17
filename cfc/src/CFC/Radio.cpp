@@ -37,7 +37,7 @@ void enableRadio() {
 }
 
 void disableRadio() {
-  digitalWrite(RADIO_POWER_PIN, LOW);
+  // digitalWrite(RADIO_POWER_PIN, LOW);
   Serial.write("oh no Radio disabled");
   radioEnabled = false;
 }
@@ -121,8 +121,7 @@ void init() {
 
   Serial1.begin(RADIO_BAUD, SERIAL_8N1, RADIO_RX, RADIO_TX,
                 false); // starts serial
-  // Comms::registerCallback(PACKET_ID_FCEnableTelemetryRadio,
-  // radio_en_callback);
+  Comms::registerCallback(PACKET_ID_FCEnableTelemetryRadio, radio_en_callback);
   Comms::registerCallback(PACKET_ID_FCEnterP900ConfigMode,
                           radioConfigModeCallback);
 }
