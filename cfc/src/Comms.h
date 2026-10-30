@@ -21,6 +21,7 @@ struct Packet {
 };
 
 extern SemaphoreHandle_t i2cLock;
+extern SemaphoreHandle_t emitLock;
 
 typedef void (*commFunction)(Packet, uint8_t);
 

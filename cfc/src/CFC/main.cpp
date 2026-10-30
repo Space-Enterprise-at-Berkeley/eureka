@@ -3,6 +3,7 @@
 #include "Common.h"
 #include "GPS.h"
 #include "IMU.h"
+#include "PT.h"
 #include "Power.h"
 #include "Radio.h"
 #include "TempSense.h"
@@ -112,6 +113,9 @@ void setup() {
   pinMode(SPI_SCK, OUTPUT);
   pinMode(SPI_MISO, INPUT);
   pinMode(SPI_MOSI, OUTPUT);
+  // hold the ADC's CS high so it stays off the bus until PT::init
+  pinMode(PT_ADC_CS_PIN, OUTPUT);
+  digitalWrite(PT_ADC_CS_PIN, HIGH);
   SPI.begin(SPI_SCK, SPI_MISO, SPI_MOSI);
   Wire.begin(I2C_SDA, I2C_SCL);
 
@@ -130,6 +134,7 @@ void setup() {
   runcam_PDB_enabled = false;
   GPS::init();
   Blackbox::init();
+  PT::init();
 
   // schedule all of our tasks
   xTaskCreate(prvHelloWorldTask, "hello_world", 2048, NULL, 5, NULL);
@@ -145,6 +150,7 @@ void setup() {
   xTaskCreate(GPS::vTaskReadGPSExtra, "read_gpsextra", 4096, NULL, 5, NULL);
   xTaskCreate(GPS::vTaskReadGPSSatInfo, "read_gpssatinfo", 8192, NULL, 5, NULL);
   xTaskCreate(prvSendCFCHealthTask, "send_cfchealth", 4096, NULL, 5, NULL);
+  xTaskCreate(PT::vTaskReadPT, "read_pt", 4096, NULL, 5, NULL);
   xTaskCreate(prvProcessWaitingPacketsTask, "process_packets", 4096, NULL, 5,
               NULL);
 }
