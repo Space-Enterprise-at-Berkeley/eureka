@@ -1,13 +1,11 @@
 #pragma once
 
 #include <Arduino.h>
-#include <LM75.h>
 #include <Comms.h>
+#include <LM75.h>
 
-
-namespace TempSense
-{
-  void init();
-  uint32_t task_readSendTemp();
-  void print();
-}
+namespace TempSense {
+void init();
+void vTaskReadSendTemp(void *pvParameters);
+void print();
+} // namespace TempSense
