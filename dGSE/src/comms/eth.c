@@ -70,7 +70,7 @@ esp_err_t
 setup_eth_link(esp_eth_handle_t **hdl,
                esp_err_t (*frame_handler)(esp_eth_handle_t hdl, uint8_t *buf,
                                           uint32_t length, void *priv),
-               void *cardtable) {
+               card_t **cardtable) {
   /* W5500 SPI Bus Initialization Code */
 
   /* Initialize GPIO interrupt service for SPI Ethernet */

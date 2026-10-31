@@ -6,6 +6,8 @@
 #include "lwip/err.h"
 #include "lwip/memp.h"
 #include "lwip/sys.h"
+#include "uthash.h"
+#include <string.h>
 #define ETHARP_TCPIP_ETHINPUT
 
 #include "esp_err.h"
@@ -45,18 +47,18 @@ static void attach_channel_udp_pcb(void *ctx) {
  * udp_recv_fn should use p->payload to access raw packet data w/o header.
  * remember to free packets in handler */
 esp_err_t attach_card(channel_t *channel, uint8_t type, uint8_t id,
-                      udp_recv_fn handler, struct netif ***iftable,
+                      udp_recv_fn handler, card_t **cardtable,
                       netif_init_fn *init_table) {
   // TODO: ADD NULL CHECKS FOR THIS FN
   portMUX_TYPE spinlock = portMUX_INITIALIZER_UNLOCKED;
 
   struct netif *interface = malloc(sizeof(struct netif));
-  ip4_addr_t addr = {.addr = 0};
   uint8_t addrbuf[4] = {10, 0, type, id};
+
+  ip4_addr_t addr = {.addr = *(uint32_t *)addrbuf};
   /* This probably will cause issues bc i am confused about endianness lmao :p
+   * Ok I looked IPv4 uses big endian always
    */
-  addr.addr |=
-      (addrbuf[0] << 24) | (addrbuf[1] << 16) | (addrbuf[2] << 8) | addrbuf[3];
 
   portENTER_CRITICAL_ISR(&spinlock);
 
@@ -83,8 +85,6 @@ esp_err_t attach_card(channel_t *channel, uint8_t type, uint8_t id,
   /* Make sure interface is recognized */
   etharp_gratuitous(interface);
 
-  iftable[type][id] = interface;
-
   /* Create UDP Interface for Card on LwIP TCPIP Thread */
   StaticSemaphore_t sem_buf;
   SemaphoreHandle_t sem = xSemaphoreCreateBinaryStatic(&sem_buf);
@@ -95,26 +95,38 @@ esp_err_t attach_card(channel_t *channel, uint8_t type, uint8_t id,
                                      .handler = handler,
                                      .sem = sem};
   tcpip_send_msg_wait_sem(attach_channel_udp_pcb, &args, &sem_buf);
+  card_t *new_card = (card_t *)sizeof(*new_card);
+  memset(new_card, 0, sizeof(card_t));
+  new_card->address = addr;
+  new_card->channel = channel;
+  new_card->interface = interface;
+  HASH_ADD(hh, *cardtable, address, sizeof(ip4_addr_t), new_card);
 
   return ESP_OK;
 }
 
-esp_err_t detach_card(uint8_t type, uint8_t id, struct netif ***iftable) {
+esp_err_t detach_card(uint8_t type, uint8_t id, card_t **cardtable) {
   portMUX_TYPE spinlock = portMUX_INITIALIZER_UNLOCKED;
+  uint8_t addrbuf[4] = {10, 0, type, id};
+  ip4_addr_t addr = {.addr = *(uint32_t *)addrbuf};
   portENTER_CRITICAL_ISR(&spinlock);
-  channel_t *channel = iftable[type][id]->state;
-  udp_remove(channel->pcb);
-  netif_remove(iftable[type][id]);
+  card_t *card;
+  HASH_FIND(hh, *cardtable, &addr, sizeof(ip4_addr_t), card);
+  /* Race condition. do not care!!!! i am so tired of threading*/
+  udp_remove(card->channel->pcb);
+  netif_remove(card->interface);
   /* Will set the component of the iftable past the available card types to the
    * carrier. This is to avoid issues involving null dereferences or sending
    * packets to objs which don't exist */
-  iftable[type][id] = iftable[CARD_TYPES][0];
-  free(channel);
   portEXIT_CRITICAL_ISR(&spinlock);
+  free(card->channel);
+  free(card->interface);
+  HASH_DEL(*cardtable, card);
+  free(card);
 
   return ESP_OK;
 }
-esp_err_t attach_carrier(udp_recv_fn handler, struct netif ***iftable,
+esp_err_t attach_carrier(udp_recv_fn handler, card_t **cardtable,
                          netif_init_fn init) {
   // TODO: ADD NULL CHECKS FOR THIS FN
   portMUX_TYPE spinlock = portMUX_INITIALIZER_UNLOCKED;
@@ -143,11 +155,15 @@ esp_err_t attach_carrier(udp_recv_fn handler, struct netif ***iftable,
   interface->name[0] = 'C';
   interface->name[1] = 'R';
   interface->flags |= NETIF_FLAG_ETHARP;
+  card_t *carrier_card = (card_t *)malloc(sizeof(*carrier_card));
+  memset(carrier_card, 0, sizeof(card_t));
+  carrier_card->channel = NULL;
+  carrier_card->interface = interface;
+  carrier_card->address = addr;
+  HASH_ADD(hh, *cardtable, address, sizeof(ip4_addr_t), carrier_card);
 
   /* Make sure interface is recognized */
   etharp_gratuitous(interface);
-
-  iftable[CARD_TYPES][0] = interface;
 
   /* Create UDP Interface for Card on LwIP TCPIP Thread */
   StaticSemaphore_t sem_buf;

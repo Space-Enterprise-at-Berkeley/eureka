@@ -15,8 +15,9 @@
 #include "lwip/pbuf.h"
 #include "lwip/udp.h"
 #include "portmacro.h"
+#include "uthash.h"
 
-static struct netif *iftable[CARD_TYPES][CARD_MAX_ID];
+card_t **cardtable;
 
 void carrier_input(void *arg, struct udp_pcb *pcb, struct pbuf *p,
                    const ip_addr_t *addr, uint16_t port) {
@@ -33,10 +34,10 @@ err_t carrier_init(struct netif *carrier_if) {
 void app_main() {
   esp_eth_handle_t *handle;
   TaskHandle_t packet_task;
-  setup_eth_link(&handle, ip_frame_handler, iftable);
+  setup_eth_link(&handle, ip_frame_handler, cardtable);
   xTaskCreate(inputPacketProcessingTask, "Input Packet Processing Task",
-              configMINIMAL_STACK_SIZE + 300, iftable, configMAX_PRIORITIES - 1,
-              &packet_task);
+              configMINIMAL_STACK_SIZE + 300, cardtable,
+              configMAX_PRIORITIES - 1, &packet_task);
   xSemaphoreTake(eth_startup_sem, 10);
-  attach_carrier(carrier_input, (struct netif ***)iftable, carrier_init);
+  attach_carrier(carrier_input, cardtable, carrier_init);
 }

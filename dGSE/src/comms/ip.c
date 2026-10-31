@@ -1,4 +1,5 @@
 #include "comms/card.h"
+#include "comms/eth.h"
 #include "esp_err.h"
 #include "esp_eth_driver.h"
 #include <stdint.h>
@@ -14,6 +15,7 @@
 #include "lwip/prot/ethernet.h"
 #include "lwip/prot/ip4.h"
 #include "portmacro.h"
+#include "uthash.h"
 
 static QueueHandle_t inputQueue = 0;
 
@@ -24,7 +26,7 @@ esp_err_t IRAM_ATTR ip_frame_handler(esp_eth_handle_t hdl, uint8_t *buf,
     return ESP_ERR_INVALID_STATE;
   }
   struct pbuf *p = pbuf_alloc(PBUF_LINK, (uint16_t)length, PBUF_POOL);
-  xQueueSendToBackFromISR(inputQueue, &p, (TickType_t)0);
+  xQueueSendToBackFromISR(inputQueue, p, (TickType_t)0);
 
   return ESP_OK;
 }
@@ -40,36 +42,25 @@ esp_err_t IRAM_ATTR ip_frame_handler(esp_eth_handle_t hdl, uint8_t *buf,
 
 typedef struct {
   struct pbuf *p;
-  struct netif ***iftable;
+  card_t **cardtable;
 } arp_args;
 
-void processARP(void *pvParameters) {
-  /* ew ew ew ew ew ew ew ew ew */
-  arp_args *args = pvParameters;
-  for (int i = 0; i < CARD_TYPES; i++) {
-    for (int j = 0; j < CARD_MAX_ID; j++) {
-      struct netif *nif = args->iftable[i][j];
-      if (nif == NULL) {
-        continue;
-      }
-      struct pbuf *local_pbuf = pbuf_alloc(PBUF_LINK, args->p->len, PBUF_RAM);
-      pbuf_copy(local_pbuf, args->p);
-      nif->input(local_pbuf, nif);
-    }
-  }
-  struct netif *carrier = args->iftable[CARD_TYPES][0];
-  struct pbuf *final_pbuf = pbuf_alloc(PBUF_LINK, args->p->len, PBUF_RAM);
-  pbuf_copy(final_pbuf, args->p);
-  carrier->input(final_pbuf, carrier);
-  pbuf_free(args->p);
-  /* Kill this task */
-  vTaskDelete(NULL);
-}
+struct __attribute__((packed)) arp_hdr {
+  unsigned short arp_hd;
+  unsigned short arp_pr;
+  unsigned char arp_hdl;
+  unsigned char arp_prl;
+  unsigned short arp_op;
+  unsigned char arp_sha[6];
+  unsigned char arp_spa[4];
+  unsigned char arp_dha[6];
+  unsigned char arp_dpa[4];
+};
 
 void inputPacketProcessingTask(void *pvParameters) {
   /* "Large" number as a contingency so things don't get dropped */
   inputQueue = xQueueCreate(150, sizeof(struct pbuf *));
-  struct netif ***iftable = pvParameters;
+  card_t **cardtable = pvParameters;
   ip4_addr_t carrier_ip = CARRIER_IP;
 
   while (true) {
@@ -80,25 +71,23 @@ void inputPacketProcessingTask(void *pvParameters) {
 
     /* Be careful to make carrier ip not overlap with arp data */
     if (hdr->dest.addr == carrier_ip.addr) {
-      struct netif *inf = iftable[CARD_TYPES][0];
+      card_t *inf;
+      HASH_FIND(hh, *cardtable, &carrier_ip, sizeof(ip4_addr_t), inf);
       if (inf != NULL)
-        inf->input(p, inf);
+        inf->interface->input(p, inf->interface);
+
       continue;
     }
-    if ((hdr->_v_hl & 0b11110000) == 0b00100000) {
-      uint8_t *address = (uint8_t *)(&hdr->dest.addr);
-      /* Remove This. This exists to test whether i am doing endianess wrong */
-      if (address[0] == 10 && address[1] == 0) {
-        ESP_LOGI("Ethernet", "FIX ME!!!!!!!!!");
-        return;
-      }
-      // use first two bytes as least significant since esp32 is little endian i
-      // think
-      struct netif *inf = iftable[address[1]][address[0]];
+    if ((hdr->_v_hl & 0b11110000) == 0b00100000 ||
+        (hdr->_v_hl & 0b00001111) == 0b00000010) {
+      card_t *inf;
+      ip4_addr_t dest = {.addr = hdr->dest.addr};
+      HASH_FIND(hh, *cardtable, &dest, sizeof(ip4_addr_t), inf);
       if (inf == NULL) {
+        ESP_LOGI("ETH", "CARD NOT FOUND!!!");
         continue;
       }
-      inf->input(p, inf);
+      inf->interface->input(p, inf->interface);
       /* No need to free p bc it is consumed by inf->input */
     } else {
       /* Just assuming other shit is ARP packets
@@ -112,11 +101,17 @@ void inputPacketProcessingTask(void *pvParameters) {
        * Crashes may result from this code if the stack depth is too small which
        * it very well might be
        * */
-      arp_args args = {.p = p, .iftable = iftable};
-      TaskHandle_t arpHandle;
-      xTaskCreate(processARP, "ARP Packet Handler",
-                  configMINIMAL_STACK_SIZE + 300, &args, tskIDLE_PRIORITY,
-                  &arpHandle);
+      /* Do this with an arp header instead. might work */
+      card_t *inf;
+      struct arp_hdr *arp_header =
+          (struct arp_hdr *)((uint8_t *)p->payload + SIZEOF_ETH_HDR);
+      ip4_addr_t dest = {.addr = *(uint32_t *)arp_header->arp_dpa};
+      HASH_FIND(hh, *cardtable, &dest, sizeof(ip4_addr_t), inf);
+      if (inf == NULL) {
+        ESP_LOGI("ETH", "CARD NOT FOUND!!!");
+        continue;
+      }
+      inf->interface->input(p, inf->interface);
     }
   }
 }
