@@ -1,6 +1,7 @@
 #include "arch/sys_arch.h"
 #include "comms/card.h"
 #include "comms/eth.h"
+#include "esp_eth_driver.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/idf_additions.h"
 #include "lwip/err.h"
@@ -32,6 +33,7 @@ struct udp_pcb_attach_args {
   SemaphoreHandle_t sem;
 };
 
+extern char mac_addr[6];
 static void attach_channel_udp_pcb(void *ctx) {
   struct udp_pcb_attach_args *args = ctx;
   args->channel->pcb = udp_new();
@@ -94,7 +96,7 @@ esp_err_t attach_card(channel_t *channel, uint8_t type, uint8_t id,
                                      .addr = addr,
                                      .handler = handler,
                                      .sem = sem};
-  tcpip_send_msg_wait_sem(attach_channel_udp_pcb, &args, &sem_buf);
+  tcpip_callback_with_block(attach_channel_udp_pcb, &args, &sem_buf);
   card_t *new_card = (card_t *)sizeof(*new_card);
   memset(new_card, 0, sizeof(card_t));
   new_card->address = addr;
@@ -127,7 +129,7 @@ esp_err_t detach_card(uint8_t type, uint8_t id, card_t **cardtable) {
   return ESP_OK;
 }
 esp_err_t attach_carrier(udp_recv_fn handler, card_t **cardtable,
-                         netif_init_fn init) {
+                         netif_init_fn init, esp_eth_handle_t *hdl) {
   // TODO: ADD NULL CHECKS FOR THIS FN
   portMUX_TYPE spinlock = portMUX_INITIALIZER_UNLOCKED;
 
@@ -140,7 +142,8 @@ esp_err_t attach_carrier(udp_recv_fn handler, card_t **cardtable,
    * I'm not doing it in TCPIP thread bc i think that might be bad and nobody
    * says to???
    */
-  ip4_addr_t addr = CARRIER_IP;
+  ip4_addr_t addr = {0};
+  ip4addr_aton("10.20.35.193", &addr);
   netif_add(interface, &addr, &netmask, &gateway, NULL, init, tcpip_input);
   portEXIT_CRITICAL_ISR(&spinlock);
   /* This block being preemptible by interrupts might cause issues?? */
@@ -155,6 +158,9 @@ esp_err_t attach_carrier(udp_recv_fn handler, card_t **cardtable,
   interface->name[0] = 'C';
   interface->name[1] = 'R';
   interface->flags |= NETIF_FLAG_ETHARP;
+  channel_t *carrier_channel = malloc(sizeof *carrier_channel);
+  carrier_channel->eth_hdl = hdl;
+  interface->state = carrier_channel;
   card_t *carrier_card = (card_t *)malloc(sizeof(*carrier_card));
   memset(carrier_card, 0, sizeof(card_t));
   carrier_card->channel = NULL;
@@ -169,12 +175,12 @@ esp_err_t attach_carrier(udp_recv_fn handler, card_t **cardtable,
   StaticSemaphore_t sem_buf;
   SemaphoreHandle_t sem = xSemaphoreCreateBinaryStatic(&sem_buf);
   xSemaphoreTake(sem, 0);
-  struct udp_pcb_attach_args args = {.channel = NULL,
+  struct udp_pcb_attach_args args = {.channel = carrier_channel,
                                      .interface = interface,
                                      .addr = addr,
                                      .handler = handler,
                                      .sem = sem};
-  tcpip_send_msg_wait_sem(attach_channel_udp_pcb, &args, &sem_buf);
+  tcpip_callback_with_block(attach_channel_udp_pcb, &args, &sem_buf);
 
   return ESP_OK;
 }

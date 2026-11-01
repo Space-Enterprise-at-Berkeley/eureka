@@ -4,7 +4,6 @@
 #include "esp_err.h"
 #include "esp_eth_driver.h"
 #include "freertos/idf_additions.h"
-#include "hal/eth_types.h"
 #include "interface.h"
 #include "lwip/err.h"
 #include "lwip/ip4_addr.h"
@@ -19,13 +18,6 @@
 #define ETH_MODULE_SPI_MOSI_GPIO 11
 #define ETH_MODULE_SPI_CLK_GPIO 12
 
-typedef struct {
-  ip4_addr_t address;
-  channel_t *channel;
-  struct netif *interface;
-  UT_hash_handle hh;
-} card_t;
-
 esp_err_t
 setup_eth_link(esp_eth_handle_t **hdl,
                esp_err_t (*frame_handler)(esp_eth_handle_t hdl, uint8_t *buf,
@@ -33,9 +25,5 @@ setup_eth_link(esp_eth_handle_t **hdl,
                card_t **cardtable);
 
 err_t link_output(struct netif *netif, struct pbuf *p);
-
-char mac_addr[6];
-
-SemaphoreHandle_t eth_startup_sem = 0;
 
 #endif

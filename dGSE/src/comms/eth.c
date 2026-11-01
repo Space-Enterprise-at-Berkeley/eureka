@@ -21,6 +21,7 @@
 #include "lwip/err.h"
 #include "lwip/netif.h"
 #include "lwip/pbuf.h"
+#include "lwip/tcpip.h"
 #include "portmacro.h"
 #include <stdint.h>
 
@@ -28,6 +29,9 @@
 
 const char *TAG = "ETH";
 
+extern char mac_addr[6];
+
+extern SemaphoreHandle_t eth_startup_sem;
 static void IRAM_ATTR eth_event_handler(void *arg, esp_event_base_t event_base,
                                         int32_t event_id, void *event_data) {
 
@@ -43,6 +47,11 @@ static void IRAM_ATTR eth_event_handler(void *arg, esp_event_base_t event_base,
     break;
   case ETHERNET_EVENT_START:
     ESP_LOGI(TAG, "Ethernet Started up :33333");
+    esp_eth_ioctl(handle, ETH_CMD_S_MAC_ADDR, mac_addr);
+    ESP_LOGI(TAG, "Eth Link up w/ addr %02x:%02x:%02x:%02x:%02x:%02. yay",
+             mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4],
+             mac_addr[5]);
+
     break;
   default:
     break;
@@ -72,6 +81,8 @@ setup_eth_link(esp_eth_handle_t **hdl,
                                           uint32_t length, void *priv),
                card_t **cardtable) {
   /* W5500 SPI Bus Initialization Code */
+  // I think i have to do this but i hate it it sucks rlly bad
+  tcpip_init(NULL, NULL);
 
   /* Initialize GPIO interrupt service for SPI Ethernet */
   gpio_install_isr_service(0);
@@ -95,7 +106,8 @@ setup_eth_link(esp_eth_handle_t **hdl,
   };
 
   esp_err_t spi_init_err;
-  if ((spi_init_err = spi_bus_initialize(SPI2_HOST, &buscfg, 1)) != ESP_OK) {
+  if ((spi_init_err =
+           spi_bus_initialize(SPI2_HOST, &buscfg, SPI_DMA_CH_AUTO)) != ESP_OK) {
     return spi_init_err;
   }
 
@@ -136,6 +148,8 @@ setup_eth_link(esp_eth_handle_t **hdl,
                                     Remember to dealloc at end of main */
 
   esp_eth_driver_install(&config, handle);
+  esp_eth_update_input_path(*handle, frame_handler, NULL);
+
   esp_event_loop_create_default();
   esp_event_handler_register(ETH_EVENT, ESP_EVENT_ANY_ID, &eth_event_handler,
                              NULL);
@@ -143,7 +157,6 @@ setup_eth_link(esp_eth_handle_t **hdl,
 
   /* Install Frame Handler and Return Handle */
 
-  esp_eth_update_input_path(*handle, frame_handler, NULL);
   *hdl = handle;
 
   return ESP_OK;

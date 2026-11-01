@@ -17,27 +17,31 @@
 #include "portmacro.h"
 #include "uthash.h"
 
-card_t **cardtable;
+card_t *cardtable = NULL;
+
+uint8_t mac_addr[6] = {0xD2, 0x0B, 0xF6, 0xB6, 0x19, 0x53};
+
+SemaphoreHandle_t eth_startup_sem = 0;
 
 void carrier_input(void *arg, struct udp_pcb *pcb, struct pbuf *p,
                    const ip_addr_t *addr, uint16_t port) {
-  ESP_LOGI("CARRIER", "Received Packet on Carrier from %s containing bytes: %s",
+  ESP_LOGI("CRR", "Received Packet on Carrier from %s containing bytes: %s",
            ip4addr_ntoa(&addr->u_addr.ip4), p->payload);
   pbuf_free(p);
 }
 
 err_t carrier_init(struct netif *carrier_if) {
-  ESP_LOGI("CARRIER", "Carrier Interface Initialized");
+  // ESP_LOGI("CRR", "Carrier Interface Initialized");
   return ERR_OK;
 }
 
 void app_main() {
   esp_eth_handle_t *handle;
   TaskHandle_t packet_task;
-  setup_eth_link(&handle, ip_frame_handler, cardtable);
+  setup_eth_link(&handle, ip_frame_handler, &cardtable);
   xTaskCreate(inputPacketProcessingTask, "Input Packet Processing Task",
-              configMINIMAL_STACK_SIZE + 300, cardtable,
+              configMINIMAL_STACK_SIZE + 300, &cardtable,
               configMAX_PRIORITIES - 1, &packet_task);
   xSemaphoreTake(eth_startup_sem, 10);
-  attach_carrier(carrier_input, cardtable, carrier_init);
+  attach_carrier(carrier_input, &cardtable, carrier_init, handle);
 }

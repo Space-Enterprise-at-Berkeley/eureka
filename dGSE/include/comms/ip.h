@@ -7,5 +7,4 @@
 esp_err_t IRAM_ATTR ip_frame_handler(esp_eth_handle_t hdl, uint8_t *buf,
                                      uint32_t length, void *priv);
 void inputPacketProcessingTask(void *pvParameters);
-
 #endif

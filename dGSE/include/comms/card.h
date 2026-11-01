@@ -2,6 +2,7 @@
 #include "lwip/ip4_addr.h"
 #include "lwip/netif.h"
 #include "lwip/udp.h"
+#include "uthash.h"
 
 #ifndef _DGSE_CARD_H
 #define _DGSE_CARD_H
@@ -11,7 +12,7 @@
 #define CARD_TYPES 4
 #define CARD_MAX_ID 10
 
-#define CARRIER_IP {.addr = 0x00000000} // TODO: Make this a part of pio env
+#define CARRIER_IP {0} // TODO: Make this a part of pio env
 
 typedef struct {
   esp_eth_handle_t *eth_hdl;
@@ -21,4 +22,11 @@ typedef struct {
   int num;
   void *adc;
 } channel_t;
+
+typedef struct {
+  ip4_addr_t address;
+  channel_t *channel;
+  struct netif *interface;
+  UT_hash_handle hh;
+} card_t;
 #endif
