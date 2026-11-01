@@ -62,16 +62,29 @@ static void IRAM_ATTR eth_event_handler(void *arg, esp_event_base_t event_base,
 SemaphoreHandle_t output_sem = 0;
 err_t link_output(struct netif *netif, struct pbuf *p) {
   channel_t *channel = netif->state;
+  ESP_LOGI("ETH", "TXING!!!");
   portMUX_TYPE spinlock = portMUX_INITIALIZER_UNLOCKED;
   /* Avoid race between tx and rx on eth */
   portENTER_CRITICAL_ISR(&spinlock);
   xSemaphoreTake(output_sem, 0);
-  err_t err = esp_eth_transmit(channel->eth_hdl, p->payload, p->len);
+  err_t err = esp_eth_transmit(*channel->eth_hdl, p->payload, p->len);
   xSemaphoreGive(output_sem);
   portEXIT_CRITICAL_ISR(&spinlock);
+  uint8_t *src = (uint8_t *)(p->payload) + 6;
+  uint8_t *destination = (uint8_t *)(p->payload);
   if (err != ESP_OK) {
+    uint8_t errinfo[20] = {0};
+    esp_err_to_name_r(err, (char *)errinfo, 20);
+    ESP_LOGE("ETH", "TRANSMIT FAILED!! why?? because of %s", errinfo);
     return ERR_ABRT;
   }
+  ESP_LOGI("ETH",
+           "DONE TXING!!! source address %02x:%02x:%02x:%02x:%02x:%02x "
+           "target %02x:%02x:%02x:%02x:%02x:%02x",
+           src[0], src[1], src[2], src[3], src[4], src[5], destination[0],
+           destination[1], destination[2], destination[3], destination[4],
+           destination[5]);
+
   return ERR_OK;
 }
 

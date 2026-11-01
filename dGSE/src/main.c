@@ -42,6 +42,6 @@ void app_main() {
   xTaskCreate(inputPacketProcessingTask, "Input Packet Processing Task",
               configMINIMAL_STACK_SIZE + 300, &cardtable,
               configMAX_PRIORITIES - 1, &packet_task);
-  xSemaphoreTake(eth_startup_sem, 10);
+  xSemaphoreTake(eth_startup_sem, 1000);
   attach_carrier(carrier_input, &cardtable, carrier_init, handle);
 }

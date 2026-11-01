@@ -2,11 +2,11 @@
 #include "comms/card.h"
 #include "comms/eth.h"
 #include "esp_eth_driver.h"
+#include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/idf_additions.h"
-#include "lwip/err.h"
-#include "lwip/memp.h"
-#include "lwip/sys.h"
+#include "lwip/ip_addr.h"
+#include "lwip/pbuf.h"
 #include "uthash.h"
 #include <string.h>
 #define ETHARP_TCPIP_ETHINPUT
@@ -18,7 +18,6 @@
 #include "lwip/priv/tcpip_priv.h"
 #include "lwip/tcpip.h"
 #include "lwip/udp.h"
-#include "netif/ethernet.h"
 #include "portmacro.h"
 #include <stdint.h>
 
@@ -39,6 +38,9 @@ static void attach_channel_udp_pcb(void *ctx) {
   args->channel->pcb = udp_new();
   if (args->channel->pcb != NULL) {
     args->channel->addr = args->addr;
+    ip_addr_t bind_addr = {.u_addr = {.ip4 = args->addr},
+                           .type = IPADDR_TYPE_V4};
+    udp_bind(args->channel->pcb, &bind_addr, 1000);
     udp_bind_netif(args->channel->pcb, args->interface);
     udp_recv(args->channel->pcb, args->handler, args->channel);
   }
@@ -158,14 +160,16 @@ esp_err_t attach_carrier(udp_recv_fn handler, card_t **cardtable,
   interface->name[0] = 'C';
   interface->name[1] = 'R';
   interface->flags |= NETIF_FLAG_ETHARP;
-  channel_t *carrier_channel = malloc(sizeof *carrier_channel);
+  channel_t *carrier_channel = (channel_t *)malloc(sizeof(channel_t));
   carrier_channel->eth_hdl = hdl;
   interface->state = carrier_channel;
-  card_t *carrier_card = (card_t *)malloc(sizeof(*carrier_card));
+  card_t *carrier_card = (card_t *)malloc(sizeof(card_t));
   memset(carrier_card, 0, sizeof(card_t));
   carrier_card->channel = NULL;
   carrier_card->interface = interface;
   carrier_card->address = addr;
+  ESP_LOGI("CRR", "Initializing Carrier with IP %s",
+           ip4addr_ntoa(&carrier_card->address));
   HASH_ADD(hh, *cardtable, address, sizeof(ip4_addr_t), carrier_card);
 
   /* Make sure interface is recognized */
@@ -181,6 +185,15 @@ esp_err_t attach_carrier(udp_recv_fn handler, card_t **cardtable,
                                      .handler = handler,
                                      .sem = sem};
   tcpip_callback_with_block(attach_channel_udp_pcb, &args, &sem_buf);
+
+  struct pbuf *p = pbuf_alloc(PBUF_RAW, 2, PBUF_RAM);
+
+  ((char *)p->payload)[0] = ':';
+  ((char *)p->payload)[1] = '3';
+  ip_addr_t dst = {.u_addr = {.ip4 = carrier_channel->addr},
+                   .type = IPADDR_TYPE_V4};
+  udp_sendto(carrier_channel->pcb, p, &dst, 1000);
+  pbuf_free(p);
 
   return ESP_OK;
 }

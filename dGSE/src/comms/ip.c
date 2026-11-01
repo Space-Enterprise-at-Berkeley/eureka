@@ -46,7 +46,8 @@ esp_err_t IRAM_ATTR ip_frame_handler(esp_eth_handle_t hdl, uint8_t *buf,
   }
   struct pckt *packet = (struct pckt *)LWIP_MEMPOOL_ALLOC(RX_POOL);
   packet->buf = buf;
-  packet->len = length;
+  /* hacky way of getting rid of fcs */
+  packet->len = length - 4;
   xQueueSendToBackFromISR(inputQueue, &packet, (TickType_t)0);
 
   return ESP_OK;
@@ -68,7 +69,8 @@ typedef struct {
 
 struct __attribute__((packed)) arp_hdr {
   unsigned short arp_hd;
-  unsigned short arp_pr;
+  unsigned char arp_pr_first;
+  unsigned char arp_pr_second;
   unsigned char arp_hdl;
   unsigned char arp_prl;
   unsigned short arp_op;
@@ -97,6 +99,7 @@ void inputPacketProcessingTask(void *pvParameters) {
       /* Be careful to make carrier ip not overlap with arp data */
       if (hdr->dest.addr == carrier_ip.addr) {
         card_t *inf;
+        ESP_LOGI("IP", "CARRIER RECVD PACKET");
         HASH_FIND(hh, *cardtable, &carrier_ip, sizeof(ip4_addr_t), inf);
         if (inf != NULL)
           inf->interface->input(p, inf->interface);
@@ -105,6 +108,7 @@ void inputPacketProcessingTask(void *pvParameters) {
       }
       if ((hdr->_v_hl & 0b11110000) == 0b00100000 ||
           (hdr->_v_hl & 0b00001111) == 0b00000010) {
+        ESP_LOGI("IP", "IP PACKET RECVD");
         card_t *inf;
         ip4_addr_t dest = {.addr = hdr->dest.addr};
         HASH_FIND(hh, *cardtable, &dest, sizeof(ip4_addr_t), inf);
@@ -128,17 +132,20 @@ void inputPacketProcessingTask(void *pvParameters) {
          * which it very well might be
          * */
         /* Do this with an arp header instead. might work */
-        card_t *inf;
+        card_t *inf = NULL;
         struct arp_hdr *arp_header =
             (struct arp_hdr *)((uint8_t *)p->payload + SIZEOF_ETH_HDR);
         ip4_addr_t dest = {.addr = *(uint32_t *)arp_header->arp_dpa};
-        HASH_FIND(hh, *cardtable, &dest, sizeof(ip4_addr_t), inf);
-        if (inf == NULL) {
-          ESP_LOGI("ETH", "CARD AT IP %s NOT FOUND!!!", ip4addr_ntoa(&dest));
+        if (arp_header->arp_pr_first != 0x08) {
           pbuf_free(p);
           continue;
         }
-        inf->interface->input(p, inf->interface);
+        HASH_FIND(hh, *cardtable, &dest, sizeof(ip4_addr_t), inf);
+        ESP_LOGI("ETH", "RECEIVED ARP FOR %s !!!", ip4addr_ntoa(&dest));
+        if (inf != NULL) {
+          inf->interface->input(p, inf->interface);
+          ESP_LOGI("ETH", "ARP HIT!!");
+        }
       }
     }
   }
