@@ -9,7 +9,7 @@ Virtual environment and package management requires [uv](https://docs.astral.sh/
 uv sync
 
 # Run project
-uv run python -m orch
+uv run orch
 
 # Add a dependency
 uv add <package>          # runtime
