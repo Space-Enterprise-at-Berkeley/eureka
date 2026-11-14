@@ -191,7 +191,8 @@ void ADS8167::write_cmd(const adc_cmd_t cmd, const uint16_t address, const uint8
     buffer[2] = (writeData) & 0xFF;
     _theSPI->transfer(buffer, 3);
 
-    _theSPI->endTransaction();
-
+    // CS must go high before endTransaction releases the bus lock, otherwise another task can start
+    // a transfer while the ADC is still selected
     digitalWrite(_cs_pin, HIGH);
+    _theSPI->endTransaction();
 }

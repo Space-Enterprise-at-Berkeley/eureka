@@ -374,6 +374,7 @@ void LIS331::LIS331_write(uint8_t reg_address, uint8_t *data, uint8_t len)
   else
   {
     // SPI write handling code
+    SPI.beginTransaction(SPISettings(2000000, SPI_MSBFIRST, SPI_MODE3));
     digitalWrite(CSPin, LOW);
     SPI.transfer(reg_address | 0x40);
     for (int i=0; i<len; i++)
@@ -381,6 +382,7 @@ void LIS331::LIS331_write(uint8_t reg_address, uint8_t *data, uint8_t len)
       SPI.transfer(data[i]);
     }
     digitalWrite(CSPin, HIGH);
+    SPI.endTransaction();
   }
 }
 
@@ -401,6 +403,7 @@ void LIS331::LIS331_read(uint8_t reg_address, uint8_t *data, uint8_t len)
   else
   {
     // SPI read handling code
+    SPI.beginTransaction(SPISettings(2000000, SPI_MSBFIRST, SPI_MODE3));
     digitalWrite(CSPin, LOW);
     SPI.transfer(reg_address | 0xC0);
     for (int i=0; i<len; i++)
@@ -408,5 +411,6 @@ void LIS331::LIS331_read(uint8_t reg_address, uint8_t *data, uint8_t len)
       data[i] = SPI.transfer(0);
     }
     digitalWrite(CSPin, HIGH);
+    SPI.endTransaction();
   }
 }

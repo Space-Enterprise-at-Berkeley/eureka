@@ -18,6 +18,12 @@ struct Task {
     bool enabled;
 };
 
+/**
+ * @brief vTaskDelayUntil that also records how late the task woke up, which is
+ * reported as avgTaskDelay in the FC health packet.
+ */
+void taskDelayUntil(TickType_t *lastWake, TickType_t period);
+
 #define initWire() Wire.setClock(400000); Wire.setPins(1,2); Wire.begin()
 
 //Define Board ID Enum
